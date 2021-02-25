@@ -15,8 +15,12 @@ Next steps:
   * The Main Algo Classes
     * Signal Class: stores signals in a panda/numpy type
     * Asset Class: stores Signals
+    * Order Manager Class: creates, updates (including cancel), and tracks orders
+    * Alpha Class: these take Asset objects and transforms their Signals into new Signals
     * Other related classes: TBD
   * The TWS adapters
     * These will subscribe live streaming data using a handler from Main Algo
+    * These will interface order from Order Manager
   * The simulation adapters
-    * These will simulate live streaming data subscription from tick data and work the same way as equivalent TWS adapters
+    * These will simulate live streaming data subscription from historical tick data and work the same way as equivalent TWS adapters
+    * These will simulate orders using historical tick data

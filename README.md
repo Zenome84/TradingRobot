@@ -1,9 +1,10 @@
 # TradingRobot
 
 Please get Interactive Brokers:
-1. Download Trader Workstation: https://www.interactivebrokers.com/en/index.php?f=14099#tws-software
-2. Download the TWS_API: http://interactivebrokers.github.io/
-3. Follow tutorials here to get started: https://tradersacademy.online/trading-courses/python-tws-api
+1. Download Trader Workstation (TWS): https://www.interactivebrokers.com/en/index.php?f=14099#tws-software
+2. Open a paper trading account (I think you can do this from TWS)
+3. Download the TWS_API: http://interactivebrokers.github.io/
+4. Follow tutorials here to get started: https://tradersacademy.online/trading-courses/python-tws-api
 
 The project currently has the following:
 * HistDD.py - is a gui oriented example for downloading historical data

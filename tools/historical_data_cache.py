@@ -7,9 +7,8 @@ import math
 import arrow
 import random
 from enum import Enum
-# from pathlib import Path
 from threading import Lock, Thread
-from ibapi_adapter import *
+from resources.ibapi_adapter import *
 
 
 class DataDownloader:
@@ -175,16 +174,14 @@ class DataDownloader:
                 yr = int(ymd[:4])
                 mt = int(ymd[4:6])
                 dy = int(ymd[6:8])
-                with open(contract_file, 'r') as f:
-                    if yr not in self.tickDataCache[cache_key][contract_key].keys():
-                        self.tickDataCache[cache_key][contract_key][yr] = {
-                            mt: {dy: contract_file}}
-                        # mt: {dy: json.load(f)}}
-                    elif mt not in self.tickDataCache[cache_key][contract_key][yr].keys():
-                        self.tickDataCache[cache_key][contract_key][yr][mt] = {
-                            dy: contract_file}
-                    else:
-                        self.tickDataCache[cache_key][contract_key][yr][mt][dy] = contract_file
+                if yr not in self.tickDataCache[cache_key][contract_key].keys():
+                    self.tickDataCache[cache_key][contract_key][yr] = {
+                        mt: {dy: contract_file}}
+                elif mt not in self.tickDataCache[cache_key][contract_key][yr].keys():
+                    self.tickDataCache[cache_key][contract_key][yr][mt] = {
+                        dy: contract_file}
+                else:
+                    self.tickDataCache[cache_key][contract_key][yr][mt][dy] = contract_file
 
             threads.append(Thread(target=self._bufferContractHistoricalTickData, args=(
                 contract, contract_start_ts, contract_end_ts, cache_key, contract_key, contract_path)))

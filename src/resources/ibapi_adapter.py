@@ -114,7 +114,7 @@ class ApiController(EWrapper):
 
 class ApiSocket(EClient):
     def __init__(self, wrapper):
-        super().__init__(wrapper)
+        EClient.__init__(wrapper)
 
 
 class IBAPI(ApiController, ApiSocket):
@@ -133,7 +133,7 @@ class IBAPI(ApiController, ApiSocket):
         """
         msgHandler must init dicts: resolvedContracts, contractDetailsObtained
         """
-        super().reqContractDetails(reqId, contract)
+        ApiSocket.reqContractDetails(reqId, contract)
 
     @iswrapper
     def reqHistoricalTicks(self, reqId: int, contract: Contract, startDateTime: str,
@@ -142,7 +142,7 @@ class IBAPI(ApiController, ApiSocket):
         """
         msgHandler must init dicts: resolvedHistoricalTickData, historicalTickDataObtained
         """
-        super().reqHistoricalTicks(reqId, contract, startDateTime, endDateTime, numberOfTicks,
+        ApiSocket.reqHistoricalTicks(reqId, contract, startDateTime, endDateTime, numberOfTicks,
                                    whatToShow, useRth, ignoreSize, miscOptions)
 
 

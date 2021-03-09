@@ -6,9 +6,13 @@ import glob
 import math
 import arrow
 import random
+
 from enum import Enum
 from threading import Lock, Thread
-from resources.ibapi_adapter import *
+
+from resources.ibapi_adapter import IBAPI
+from resources.time_tools import wait_until
+from models.asset import Asset
 
 
 class RobotClient:
@@ -33,6 +37,8 @@ class RobotClient:
         self.historicalTickDataObtained = dict()
         self.resolvedHistoricalBarData = dict()
 
+        self.assetCache = dict()
+
         self.barTypesMinDuration = {
             '1 sec': '1800 S',  # 30 mins
             '5 sec': '3600 S',  # 1 hr
@@ -54,20 +60,23 @@ class RobotClient:
             '1 day': '1 Y'
         }
 
-        self.contractCache = dict()
-        self.tickDataCache = dict()
-        self.barDataCache = dict()
-
     def connect_client(self):
         self.tws_client = IBAPI(
             '127.0.0.1', 7496 if self.live else 7497, self.clientId, self)
-        timePassed = 0
-        while not self.tws_client.isConnected():
-            time.sleep(0.1)
-            timePassed += 0.1
-            if timePassed > 5:
-                raise RuntimeError(
-                    "Waited more than 5 secs to establish connection")
+
+        wait_until(
+            condition_function=lambda: self.tws_client.isConnected,
+            seconds_to_wait=5,
+            msg="Waited more than 5 secs to establish connection"
+        )
+
+        # timePassed = 0
+        # while not self.tws_client.isConnected():
+        #     time.sleep(0.1)
+        #     timePassed += 0.1
+        #     if timePassed > 5:
+        #         raise RuntimeError(
+        #             "Waited more than 5 secs to establish connection")
 
     def disconnect_client(self):
         self.tws_client.disconnect()
@@ -83,3 +92,18 @@ class RobotClient:
             self.reqIds.add(*new_reqIds)
         self.reqIds_mutex.release()
         return new_reqIds
+
+    def subscribe_contract(self, symbol, exchange, secType):
+        asset_key = "{}@{}".format(symbol, exchange)
+        self.assetCache[asset_key] = Asset(
+            symbol=symbol, exchange=exchange, secType=secType, client=self)
+        return asset_key
+
+
+if __name__ == "__main__":
+
+    robot_client = RobotClient()
+    robot_client.subscribe_contract('ES', 'GLOBEX', 'FUT')
+    robot_client.subscribe_contract('SPY', 'SMART', 'STK')
+    robot_client.disconnect_client()
+    print("Done")

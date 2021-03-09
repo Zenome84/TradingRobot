@@ -21,3 +21,5 @@ class Signal:
         self.name = name
         self.length = length
         self.data = {}
+
+    def updateData(self, )

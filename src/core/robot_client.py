@@ -93,20 +93,50 @@ if __name__ == "__main__":
     robot_client = RobotClient()
     es_key = robot_client.subscribe_asset('ES', 'GLOBEX', 'FUT')
     # es_key = robot_client.subscribe_asset('SPY', 'SMART', 'STK')
-    reqId = robot_client.subscribe_bar_signal(es_key, BarSize.MIN_01, 100)
+    reqId1 = robot_client.subscribe_bar_signal(es_key, BarSize.MIN_01, 50)
+    reqId2 = robot_client.subscribe_bar_signal(es_key, BarSize.MIN_05, 50)
+    reqId3 = robot_client.subscribe_bar_signal(es_key, BarSize.MIN_30, 50)
+    reqId4 = robot_client.subscribe_bar_signal(es_key, BarSize.HRS_01, 50)
 
     fig = plt.figure()
-    ax1 = fig.add_subplot(1,1,1)
-    for i in range(10):
-        data = robot_client.assetCache[es_key].signals[reqId].get_numpy()
-        ax1.clear()
-        ax1.plot(data[:, 0], data[:, 2:4])
-        ax1.plot(data[:, 0], data[:, 7])
-        ax1.plot(data[-1, 0], data[-1, 4], marker='o')
-        plt.pause(0.05)
-    plt.show()
+    ax1 = fig.add_subplot(4,1,1)
+    ax2 = fig.add_subplot(4,1,2)
+    ax3 = fig.add_subplot(4,1,3)
+    ax4 = fig.add_subplot(4,1,4)
+    for i in range(1000):
+        data1 = robot_client.assetCache[es_key].signals[reqId1].get_numpy()
+        data2 = robot_client.assetCache[es_key].signals[reqId2].get_numpy()
+        data3 = robot_client.assetCache[es_key].signals[reqId3].get_numpy()
+        data4 = robot_client.assetCache[es_key].signals[reqId4].get_numpy()
 
-    robot_client.unsubscribe_bar_signal(reqId)
-    time.sleep(5)
+        ax1.clear()
+        ax2.clear()
+        ax3.clear()
+        ax4.clear()
+
+        ax1.plot(data1[:, 0], data1[:, 2:4])
+        ax1.plot(data1[:, 0], data1[:, 7])
+        ax1.plot(data1[-1, 0], data1[-1, 4], marker='o')
+        
+        ax2.plot(data2[:, 0], data2[:, 2:4])
+        ax2.plot(data2[:, 0], data2[:, 7])
+        ax2.plot(data2[-1, 0], data2[-1, 4], marker='o')
+        
+        ax3.plot(data3[:, 0], data3[:, 2:4])
+        ax3.plot(data3[:, 0], data3[:, 7])
+        ax3.plot(data3[-1, 0], data3[-1, 4], marker='o')
+        
+        ax4.plot(data4[:, 0], data4[:, 2:4])
+        ax4.plot(data4[:, 0], data4[:, 7])
+        ax4.plot(data4[-1, 0], data4[-1, 4], marker='o')
+
+        plt.pause(0.05)
+    # plt.show()
+
+    robot_client.unsubscribe_bar_signal(reqId1)
+    robot_client.unsubscribe_bar_signal(reqId2)
+    robot_client.unsubscribe_bar_signal(reqId3)
+    robot_client.unsubscribe_bar_signal(reqId4)
+
     robot_client.disconnect_client()
     print("Done")

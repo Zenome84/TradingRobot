@@ -10,6 +10,8 @@ The project currently has the following:
 * HistDD.py - is a gui oriented example for downloading historical data
 * ibapi_adapters - custom adapter to interface with TWS_API
 * historical_data_cache - used to download historical tick data for futures and stocks
+* robot_client.py - this is the main app that will comminate between the adapters and the eventual robot
+  * You can currently use this to test 4 live streams on a single asset
 
 Next steps:
 * The work is divided into 3 parts

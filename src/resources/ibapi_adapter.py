@@ -60,20 +60,20 @@ class ApiController(EWrapper):
     # reqHistoricalData
     @iswrapper
     def historicalData(self, reqId: int, bar: BarData):
-        if self.msgHandler is not None:
-            self.msgHandler.updateBarData(reqId, bar)
-        else:
+        # if self.msgHandler is not None:
+        #     self.msgHandler.updateBarData(reqId, bar)
+        # else:
             # print("HistoricalData. ReqId:", reqId, "BarData.", bar)
-            print("TS: {} | Open: {} | High: {} | Low: {} | Close: {} | Volume: {} | Count: {} | VWAP: {}".format(
-                arrow.get(bar.date + " " + str(self.default_tz), "YYYYMMDD  HH:mm:ss ZZZ"),
-                bar.open,
-                bar.high,
-                bar.low,
-                bar.close,
-                bar.volume,
-                bar.barCount,
-                bar.average,
-            ))
+        print("TS: {} | Open: {} | High: {} | Low: {} | Close: {} | Volume: {} | Count: {} | VWAP: {}".format(
+            arrow.get(bar.date + " " + str(self.default_tz), "YYYYMMDD  HH:mm:ss ZZZ"),
+            bar.open,
+            bar.high,
+            bar.low,
+            bar.close,
+            bar.volume,
+            bar.barCount,
+            bar.average,
+        ))
 
     def historicalDataEnd(self, reqId: int, start: str, end: str):
         super().historicalDataEnd(reqId, start, end)

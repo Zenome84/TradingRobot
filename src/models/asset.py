@@ -53,3 +53,6 @@ class Asset(Contract):
                     self.contract = contract
         else:
             self.contract = contracts[0]
+
+    def subscribe_bar_signal(self):
+        pass

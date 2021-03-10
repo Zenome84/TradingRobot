@@ -6,8 +6,11 @@ import glob
 import math
 import arrow
 import random
-from enum import Enum
-from threading import Lock, Thread
+
+from collections import deque
+
+# from enum import Enum
+# from threading import Lock, Thread
 from resources.ibapi_adapter import *
 
 
@@ -20,6 +23,13 @@ class Signal:
         '''
         self.name = name
         self.length = length
-        self.data = {}
+        self.data = deque(maxlen=length)
 
-    def updateData(self, )
+    def updateData(self, data_point):
+        if self.data[-1][0] == data_point[0]:
+            self.data[-1] = data_point
+        else:
+            self.data.append(data_point)
+
+    def get_numpy(self):
+        return np.array(self.data)

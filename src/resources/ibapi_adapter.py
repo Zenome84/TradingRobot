@@ -57,41 +57,33 @@ class ApiController(EWrapper):
 
     ###########################################
 
-    # reqHistoricalData
+    # reqHistoricalData, cancelHistoricalData for Update
     @iswrapper
     def historicalData(self, reqId: int, bar: BarData):
-        # if self.msgHandler is not None:
-        #     self.msgHandler.updateBarData(reqId, bar)
-        # else:
-            # print("HistoricalData. ReqId:", reqId, "BarData.", bar)
-        print("TS: {} | Open: {} | High: {} | Low: {} | Close: {} | Volume: {} | Count: {} | VWAP: {}".format(
-            arrow.get(bar.date + " " + str(self.default_tz), "YYYYMMDD  HH:mm:ss ZZZ"),
-            bar.open,
-            bar.high,
-            bar.low,
-            bar.close,
-            bar.volume,
-            bar.barCount,
-            bar.average,
-        ))
+        if self.msgHandler is not None:
+            self.msgHandler.updateBarData(reqId, bar)
+        else:
+            print("TS: {} | Open: {} | High: {} | Low: {} | Close: {} | Volume: {} | Count: {} | VWAP: {}".format(
+                arrow.get(bar.date + " " + str(self.default_tz), "YYYYMMDD  HH:mm:ss ZZZ"),
+                bar.open,
+                bar.high,
+                bar.low,
+                bar.close,
+                bar.volume,
+                bar.barCount,
+                bar.average,
+            ))
 
     def historicalDataEnd(self, reqId: int, start: str, end: str):
-        super().historicalDataEnd(reqId, start, end)
-        print("HistoricalDataEnd. ReqId:", reqId, "from", start, "to", end)
+        if self.msgHandler is not None:
+            self.msgHandler.resolvedHistoricalBarData[reqId] = True
+        else:
+            super().historicalDataEnd(reqId, start, end)
+            print("HistoricalDataEnd. ReqId:", reqId, "from", start, "to", end)
 
     @iswrapper
     def historicalDataUpdate(self, reqId: int, bar: BarData):
-        # print("HistoricalDataUpdate. ReqId:", reqId, "BarData.", bar)
-        print("TS: {} | Open: {} | High: {} | Low: {} | Close: {} | Volume: {} | Count: {} | VWAP: {}".format(
-            arrow.get(bar.date + " " + str(self.default_tz), "YYYYMMDD  HH:mm:ss ZZZ"),
-            bar.open,
-            bar.high,
-            bar.low,
-            bar.close,
-            bar.volume,
-            bar.barCount,
-            bar.average,
-        ))
+        self.historicalData(reqId, bar)
 
     ###########################################
 
@@ -164,7 +156,8 @@ class IBAPI(ApiController, ApiSocket):
     @iswrapper
     def reqContractDetails(self, reqId: int, contract: Contract):
         """
-        msgHandler must init dicts: resolvedContracts, contractDetailsObtained
+        msgHandler must >>
+            init dicts: resolvedContracts, contractDetailsObtained
         """
         super().reqContractDetails(reqId, contract)
 
@@ -173,7 +166,8 @@ class IBAPI(ApiController, ApiSocket):
                            endDateTime: str, numberOfTicks: int = 1000, whatToShow: str = "TRADES", useRth: int = 0,
                            ignoreSize: bool = False, miscOptions: TagValueList = []):
         """
-        msgHandler must init dicts: resolvedHistoricalTickData, historicalTickDataObtained
+        msgHandler must >>
+            init dicts: resolvedHistoricalTickData, historicalTickDataObtained
         """
         super().reqHistoricalTicks(reqId, contract, startDateTime, endDateTime, numberOfTicks,
                                    whatToShow, useRth, ignoreSize, miscOptions)
@@ -183,10 +177,19 @@ class IBAPI(ApiController, ApiSocket):
                           durationStr: str, barSizeSetting: str, whatToShow: str,
                           useRTH: int, formatDate: int, keepUpToDate: bool, chartOptions: TagValueList):
         """
-        msgHandler must define: updateBarData
+        msgHandler must >>
+            define funcs: updateBarData
+            init dicts: resolvedHistoricalBarData
         """
         super().reqHistoricalData(reqId, contract, endDateTime, durationStr,
                                   barSizeSetting, whatToShow, useRTH, formatDate, keepUpToDate, chartOptions)
+                                  
+    @iswrapper
+    def cancelHistoricalData(self, reqId: TickerId):
+        """
+        msgHandler must >>
+        """
+        super().cancelHistoricalData(reqId)
 
 
 if __name__ == "__main__":

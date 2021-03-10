@@ -37,6 +37,7 @@ class RobotClient:
         self.resolvedHistoricalBarData = dict()
 
         self.assetCache = dict()
+        self.request_signal_map = dict()
 
     def connect_client(self):
         self.tws_client = IBAPI(
@@ -63,6 +64,11 @@ class RobotClient:
         self.reqIds_mutex.release()
         return new_reqIds
 
+    def resolve_request(self, reqId):
+        if self.reqIds_mutex.acquire():
+            self.reqIds.remove(reqId)
+        self.reqIds_mutex.release()
+
     def subscribe_asset(self, symbol, exchange, secType):
         asset_key = "{}@{}".format(symbol, exchange)
         self.assetCache[asset_key] = Asset(
@@ -70,26 +76,37 @@ class RobotClient:
         return asset_key
 
     def subscribe_bar_signal(self, asset_key, bar_size, length):
-        reqId = self.get_new_reqIds()[0]
-        self.tws_client.reqHistoricalData(
-            reqId, self.assetCache[asset_key].contract, "", BarDuration[bar_size.value], bar_size.value, "TRADES", 0, 1, True, [])
+        reqId = self.assetCache[asset_key].subscribe_bar_signal(bar_size, length)
         return reqId
 
+    def unsubscribe_bar_signal(self, reqId):
+        self.assetCache[self.request_signal_map[reqId]].unsubscribe_bar_signal(reqId)
+
+    def updateBarData(self, reqId, bar):
+        self.assetCache[self.request_signal_map[reqId]].updateBarData(reqId, bar)
 
 
 if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+    import numpy as np
 
     robot_client = RobotClient()
     es_key = robot_client.subscribe_asset('ES', 'GLOBEX', 'FUT')
     # es_key = robot_client.subscribe_asset('SPY', 'SMART', 'STK')
     reqId = robot_client.subscribe_bar_signal(es_key, BarSize.MIN_01, 100)
-    # wait_until(
-    #     condition_function=lambda: False,
-    #     seconds_to_wait=125,
-    #     msg="Waited 125 secs"
-    # )
-    time.sleep(10)
-    robot_client.tws_client.cancelHistoricalData(reqId)
-    time.sleep(10)
+
+    fig = plt.figure()
+    ax1 = fig.add_subplot(1,1,1)
+    for i in range(10):
+        data = robot_client.assetCache[es_key].signals[reqId].get_numpy()
+        ax1.clear()
+        ax1.plot(data[:, 0], data[:, 2:4])
+        ax1.plot(data[:, 0], data[:, 7])
+        ax1.plot(data[-1, 0], data[-1, 4], marker='o')
+        plt.pause(0.05)
+    plt.show()
+
+    robot_client.unsubscribe_bar_signal(reqId)
+    time.sleep(5)
     robot_client.disconnect_client()
     print("Done")

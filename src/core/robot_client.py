@@ -91,7 +91,7 @@ if __name__ == "__main__":
     import numpy as np
 
     robot_client = RobotClient()
-    es_key = robot_client.subscribe_asset('ES', 'GLOBEX', 'FUT')
+    es_key = robot_client.subscribe_asset('NQ', 'GLOBEX', 'FUT')
     # es_key = robot_client.subscribe_asset('SPY', 'SMART', 'STK')
     reqId1 = robot_client.subscribe_bar_signal(es_key, BarSize.MIN_01, 50)
     reqId2 = robot_client.subscribe_bar_signal(es_key, BarSize.MIN_05, 50)

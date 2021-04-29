@@ -27,3 +27,5 @@ Next steps:
   * The simulation adapters
     * These will simulate live streaming data subscription from historical tick data and work the same way as equivalent TWS adapters
     * These will simulate orders using historical tick data
+  * Machine Learning:
+    * We will use the following work as a basis: http://www.cs.ucf.edu/~gitars/cap6671-2010/Presentations/Qlearning-stocks-multiagent.pdf

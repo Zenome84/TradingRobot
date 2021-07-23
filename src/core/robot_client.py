@@ -19,10 +19,10 @@ from models.asset import Asset
 
 class RobotClient:
 
-    def __init__(self, connect=True):
+    def __init__(self, cliendId=1, live=True, connect=True):
         self.time_zone = 'US/Eastern'
-        self.live = True
-        self.clientId = 1
+        self.live = live
+        self.clientId = cliendId
 
         if connect:
             self.connect_client()
@@ -90,8 +90,8 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     import numpy as np
 
-    robot_client = RobotClient()
-    es_key = robot_client.subscribe_asset('NQ', 'GLOBEX', 'FUT')
+    robot_client = RobotClient(cliendId=2, live=True)
+    es_key = robot_client.subscribe_asset('ES', 'GLOBEX', 'FUT')
     # es_key = robot_client.subscribe_asset('SPY', 'SMART', 'STK')
     reqId1 = robot_client.subscribe_bar_signal(es_key, BarSize.MIN_01, 50)
     reqId2 = robot_client.subscribe_bar_signal(es_key, BarSize.MIN_05, 50)

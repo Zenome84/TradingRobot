@@ -154,7 +154,7 @@ class DataDownloader:
                 contract_key = 0
             elif contractType is self.ContractType.FUT:
                 contract_end_ts = arrow.get(contract.lastTradeDateOrContractMonth +
-                                            " 09:30:00 " + self.time_zone, "YYYYMMDD HH:mm:ss ZZZ").timestamp
+                                            " 09:30:00 " + self.time_zone, "YYYYMMDD HH:mm:ss ZZZ").int_timestamp
                 contract_start_ts = max(
                     start_ts, contract_end_ts - 8640000)  # 100 days
                 contract_end_ts = min(end_ts, contract_end_ts)
@@ -220,7 +220,7 @@ class DataDownloader:
                     and mt in self.tickDataCache[cache_key][contract_key][yr].keys() \
                     and dy in self.tickDataCache[cache_key][contract_key][yr][mt].keys():
                 curr_ts = arrow.get("{:04d}{:02d}{:02d} 00:00:00 {}".format(
-                    yr, mt, dy, self.time_zone), "YYYYMMDD HH:mm:ss ZZZ").timestamp
+                    yr, mt, dy, self.time_zone), "YYYYMMDD HH:mm:ss ZZZ").int_timestamp
                 daily_dict = dict()
                 continue
 
@@ -311,9 +311,9 @@ if __name__ == "__main__":
     dd.bufferFutures('NQ', 'GLOBEX')
     dd.bufferHistoricalTickData('NQ', 'GLOBEX',
                                 arrow.get("20181216 18:30:00 " + dd.time_zone,
-                                          "YYYYMMDD HH:mm:ss ZZZ").timestamp,
-                                arrow.get("20210130 05:00:00 " + dd.time_zone,
-                                          "YYYYMMDD HH:mm:ss ZZZ").timestamp,
+                                          "YYYYMMDD HH:mm:ss ZZZ").int_timestamp,
+                                arrow.get("20210723 05:00:00 " + dd.time_zone,
+                                          "YYYYMMDD HH:mm:ss ZZZ").int_timestamp,
                                 dd.ContractType.FUT)
     dd.disconnect_client()
     print("Done")

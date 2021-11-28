@@ -15,6 +15,7 @@ from ibapi.ticktype import TickTypeEnum
 
 from resources.time_tools import ClockController
 
+
 class ApiController(EWrapper):
     def __init__(self, msgHandler=None, time_zone=ClockController.time_zone):
         EWrapper.__init__(self)
@@ -44,7 +45,7 @@ class ApiController(EWrapper):
             self.msgHandler.resolvedContracts.setdefault(
                 reqId, []).append(contractDetails.contract)
         else:
-            print("Contract Details: {}".format(contractDetails.contract))
+            print(f"Contract Details: {contractDetails.contract}")
             self.resolved_contract.append(contractDetails.contract)
 
     @iswrapper
@@ -52,7 +53,7 @@ class ApiController(EWrapper):
         if self.msgHandler is not None:
             self.msgHandler.contractDetailsObtained[reqId] = True
         else:
-            print("Completed Request: {}".format(reqId))
+            print(f"Completed Request: {reqId}")
             self.contractDetailsIsObtained = True
 
     ###########################################
@@ -63,16 +64,16 @@ class ApiController(EWrapper):
         if self.msgHandler is not None:
             self.msgHandler.updateBarData(reqId, bar)
         else:
-            print("TS: {} | Open: {} | High: {} | Low: {} | Close: {} | Volume: {} | Count: {} | VWAP: {}".format(
-                arrow.get(bar.date + " " + str(self.default_tz), "YYYYMMDD  HH:mm:ss ZZZ"),
-                bar.open,
-                bar.high,
-                bar.low,
-                bar.close,
-                bar.volume,
-                bar.barCount,
-                bar.average,
-            ))
+            print(
+                f"TS: {arrow.get(bar.date + ' ' + str(self.default_tz), 'YYYYMMDD  HH:mm:ss ZZZ')} | " +
+                f"Open: {bar.open} | " +
+                f"High: {bar.high} | " +
+                f"Low: {bar.low} | " +
+                f"Close: {bar.close} | " +
+                f"Volume: {bar.volume} | " +
+                f"Count: {bar.barCount} | " +
+                f"VWAP: {bar.average}"
+            )
 
     def historicalDataEnd(self, reqId: int, start: str, end: str):
         if self.msgHandler is not None:
@@ -95,16 +96,16 @@ class ApiController(EWrapper):
             self.msgHandler.historicalTickDataObtained[reqId] = True
         else:
             for tick in ticks:
-                print("HistoricalTickLast. Time: {} | PastLimit: {} | Unreported: {} | Price: {} | Size: {} | Exchange: {} | SpecialConditions: {}".format(
-                    arrow.get(tick.time).to(self.default_tz),
-                    tick.tickAttribLast.pastLimit,
-                    tick.tickAttribLast.unreported,
-                    tick.price,
-                    tick.size,
-                    tick.exchange,
-                    tick.specialConditions
-                ))
-            print("Completed Request: {} | Count: {}".format(reqId, len(ticks)))
+                print(
+                    f"HistoricalTickLast. Time: {arrow.get(tick.time).to(self.default_tz)} | " +
+                    f"PastLimit: {tick.tickAttribLast.pastLimit} | " +
+                    f"Unreported: {tick.tickAttribLast.unreported} | " +
+                    f"Price: {tick.pric} | " +
+                    f"Size: {tick.size} | " +
+                    f"Exchange: {tick.exchange} | " +
+                    f"SpecialConditions: {tick.specialConditions}"
+                )
+            print(f"Completed Request: {reqId} | Count: {len(ticks)}")
 
     ###########################################
 
@@ -183,7 +184,7 @@ class IBAPI(ApiController, ApiSocket):
         """
         super().reqHistoricalData(reqId, contract, endDateTime, durationStr,
                                   barSizeSetting, whatToShow, useRTH, formatDate, keepUpToDate, chartOptions)
-                                  
+
     @iswrapper
     def cancelHistoricalData(self, reqId: TickerId):
         """
@@ -235,7 +236,7 @@ if __name__ == "__main__":
     for contract in tApp.resolved_contract:
         # and contract.conId != 299552802:
         if int(contract.lastTradeDateOrContractMonth) < max_month \
-            and int(contract.lastTradeDateOrContractMonth) > int(arrow.utcnow().format("YYYYMMDD")):
+                and int(contract.lastTradeDateOrContractMonth) > int(arrow.utcnow().format("YYYYMMDD")):
             max_month = int(contract.lastTradeDateOrContractMonth)
             front_contract = contract
 
@@ -248,7 +249,6 @@ if __name__ == "__main__":
         if timePassed > 125:
             raise RuntimeError(
                 "Waited more than 5 secs to get contract details")
-                    
 
     print('Done')
 

@@ -1,0 +1,104 @@
+vwap =
+from(bucket: "MarketData")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r["_measurement"] == "tick")
+  |> filter(fn: (r) => r["exchange"] == "v.exchange")
+  |> filter(fn: (r) => r["symbol"] == "v.symbol")
+  |> filter(fn: (r) => r["contract"] == "v.contract")
+  |> filter(fn: (r) => r["_field"] == "ps" or r["_field"] == "size")
+  |> aggregateWindow(every: v.windowPeriod, fn: sum, timeSrc: "_start", createEmpty: false)
+  |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+  |> map(fn: (r) => ({
+    _time: r._time,
+    vwap: (r.ps / float(v: r.size)),
+    volume: r.size
+  }))
+
+mins =
+from(bucket: "MarketData")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r["_measurement"] == "tick")
+  |> filter(fn: (r) => r["exchange"] == "v.exchange")
+  |> filter(fn: (r) => r["symbol"] == "v.symbol")
+  |> filter(fn: (r) => r["contract"] == "v.contract")
+  |> filter(fn: (r) => r["_field"] == "price")
+  |> aggregateWindow(every: v.windowPeriod, fn: min, timeSrc: "_start", createEmpty: false)
+  |> duplicate(column: "_value", as: "low")
+  |> keep(columns: ["_time", "low"])
+
+maxs =
+from(bucket: "MarketData")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r["_measurement"] == "tick")
+  |> filter(fn: (r) => r["exchange"] == "v.exchange")
+  |> filter(fn: (r) => r["symbol"] == "v.symbol")
+  |> filter(fn: (r) => r["contract"] == "v.contract")
+  |> filter(fn: (r) => r["_field"] == "price")
+  |> aggregateWindow(every: v.windowPeriod, fn: max, timeSrc: "_start", createEmpty: false)
+  |> duplicate(column: "_value", as: "high")
+  |> keep(columns: ["_time", "high"])
+
+open =
+from(bucket: "MarketData")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r["_measurement"] == "tick")
+  |> filter(fn: (r) => r["exchange"] == "v.exchange")
+  |> filter(fn: (r) => r["symbol"] == "v.symbol")
+  |> filter(fn: (r) => r["contract"] == "v.contract")
+  |> filter(fn: (r) => r["_field"] == "price")
+  |> aggregateWindow(every: v.windowPeriod, fn: first, timeSrc: "_start", createEmpty: false)
+  |> duplicate(column: "_value", as: "open")
+  |> keep(columns: ["_time", "open"])
+
+close =
+from(bucket: "MarketData")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r["_measurement"] == "tick")
+  |> filter(fn: (r) => r["exchange"] == "v.exchange")
+  |> filter(fn: (r) => r["symbol"] == "v.symbol")
+  |> filter(fn: (r) => r["contract"] == "v.contract")
+  |> filter(fn: (r) => r["_field"] == "price")
+  |> aggregateWindow(every: v.windowPeriod, fn: last, timeSrc: "_start", createEmpty: false)
+  |> duplicate(column: "_value", as: "close")
+  |> keep(columns: ["_time", "close"])
+
+cnt =
+from(bucket: "MarketData")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r["_measurement"] == "tick")
+  |> filter(fn: (r) => r["exchange"] == "v.exchange")
+  |> filter(fn: (r) => r["symbol"] == "v.symbol")
+  |> filter(fn: (r) => r["contract"] == "v.contract")
+  |> filter(fn: (r) => r["_field"] == "price")
+  |> aggregateWindow(every: v.windowPeriod, fn: count, timeSrc: "_start", createEmpty: false)
+  |> duplicate(column: "_value", as: "count")
+  |> keep(columns: ["_time", "count"])
+
+mm =
+join(
+  tables: {d1: mins, d2: maxs},
+  on: ["_time"]
+)
+
+mmo =
+join(
+  tables: {d1: mm, d2: open},
+  on: ["_time"]
+)
+
+mmoc =
+join(
+  tables: {d1: mmo, d2: close},
+  on: ["_time"]
+)
+
+mmocc =
+join(
+  tables: {d1: mmoc, d2: cnt},
+  on: ["_time"]
+)
+
+join(
+  tables: {d1: mmocc, d2: vwap},
+  on: ["_time"]
+)

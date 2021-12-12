@@ -33,5 +33,8 @@ class Signal:
         else:
             self.data.append(data_point)
 
-    def get_numpy(self):
-        return np.array(self.data)
+    def get_numpy(self, N:int = None):
+        if N is None:
+            return np.array(self.data)
+        else:
+            return np.array(self.data[-N:])

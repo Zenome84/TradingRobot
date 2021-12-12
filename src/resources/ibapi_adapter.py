@@ -1,7 +1,12 @@
 
+from PIL.Image import new
+from ibapi.execution import Execution
+from ibapi.order import Order
+from ibapi.order_state import OrderState
 import pytz
 import time
 import arrow
+from decimal import Decimal
 
 from threading import Thread
 
@@ -10,7 +15,7 @@ from ibapi.client import EClient
 from ibapi.utils import iswrapper
 # from ibapi.order import Order
 from ibapi.contract import Contract, ContractDetails
-from ibapi.common import ListOfHistoricalTickLast, TagValueList, BarData, TickerId
+from ibapi.common import ListOfHistoricalTickLast, OrderId, TagValueList, BarData, TickerId
 from ibapi.ticktype import TickTypeEnum
 
 from resources.time_tools import ClockController
@@ -25,6 +30,7 @@ class ApiController(EWrapper):
         if msgHandler is None:
             self.resolved_contract = []
             self.contractDetailsIsObtained = False
+            self.orders = {}
 
     @iswrapper
     def error(self, reqId, errorCode, errorString):
@@ -35,6 +41,147 @@ class ApiController(EWrapper):
     def connectAck(self):
         print("\n[Connected]")
         time.sleep(0.1)
+
+
+    ###########################################
+
+    @iswrapper
+    def updateAccountValue(self, key: str, val: str, currency: str,
+                           accountName: str):
+        if self.msgHandler is not None:
+            if key in self.msgHandler.accountInfoKeys and currency in ['USD']:
+                self.msgHandler.updateAccountData(key, val)
+        else:
+            if key in ['TotalCashBalance','RealizedPnL','UnrealizedPnL'] and currency in ['USD']:
+                print(
+                    f"Account: {accountName} | " +
+                    f"{key}: {val} {currency} | "
+                )
+
+
+    @iswrapper
+    def updatePortfolio(self, contract: Contract, position: Decimal,
+                        marketPrice: float, marketValue: float,
+                        averageCost: float, unrealizedPNL: float,
+                        realizedPNL: float, accountName: str):
+        if self.msgHandler is not None:
+            self.msgHandler.updatePositionData(contract, position)
+        else:
+            print(
+                f"Account: {accountName} | " +
+                f"Asset: {contract.symbol}@{contract.primaryExchange} | " +
+                f"Position: {position} | " +
+                f"MarketPrice: {marketPrice} | " +
+                f"MarketValue: {marketValue} | " +
+                f"AverageCost: {averageCost} | " +
+                f"UnrealizedPNL: {unrealizedPNL} | " +
+                f"RealizedPNL: {realizedPNL} | "
+            )
+
+    @iswrapper
+    def updateAccountTime(self, timeStamp: str):
+        if self.msgHandler is not None:
+            if 'LastUpdate' in self.msgHandler.accountInfoKeys:
+                self.msgHandler.updateAccountData('LastUpdate', timeStamp)
+        else:
+            print(
+                f"TS: {timeStamp} | "
+            )
+
+    # @iswrapper
+    # def accountDownloadEnd(self, accountName: str):
+    #     super().accountDownloadEnd(accountName)
+    #     print("AccountDownloadEnd. Account:", accountName)
+
+    # @iswrapper
+    # def accountSummary(self, reqId: int, account: str, tag: str, value: str,
+    #                    currency: str):
+    #     super().accountSummary(reqId, account, tag, value, currency)
+    #     print("AccountSummary. ReqId:", reqId, "Account:", account,
+    #           "Tag: ", tag, "Value:", value, "Currency:", currency)
+    
+    # @iswrapper
+    # def accountSummaryEnd(self, reqId: int):
+    #     super().accountSummaryEnd(reqId)
+    #     print("AccountSummaryEnd. ReqId:", reqId)
+
+    # @iswrapper
+    # def position(self, account: str, contract: Contract, position: Decimal,
+    #              avgCost: float):
+    #     if self.msgHandler is not None:
+    #         self.msgHandler.updatePositionData(contract, position)
+    #     else:
+    #         print(
+    #             f"Account: {account} | " +
+    #             f"Asset: {contract.symbol}@{contract.primaryExchange} | " +
+    #             f"Position: {position} | "
+    #         )
+
+    # @iswrapper
+    # def positionEnd(self):
+    #     super().positionEnd()
+    #     print("PositionEnd")
+
+    ###########################################
+
+    # nextValidId, openOrder
+    @iswrapper
+    def nextValidId(self, orderId: int):
+        if self.msgHandler is not None:
+            self.msgHandler.nextValidOrderId = orderId
+            self.msgHandler.orderIdObtained = True
+        else:
+            self.nextValidOrderId = orderId
+            print(f"nextValidOrderId: {orderId}")
+
+    @iswrapper
+    def openOrder(self, orderId: OrderId, contract: Contract, order: Order,
+                  orderState: OrderState):
+        if self.msgHandler is not None:
+            self.msgHandler.handleOpenOrder(orderId, contract, order, orderState)
+        else:
+            print(
+                f"OrderId: {orderId} | " +
+                f"Asset: {contract.symbol}@{contract.exchange} | " +
+                f"Action: {order.action} | " +
+                f"OrderType: {order.orderType} | " +
+                f"TotalQty: {order.totalQuantity} | " +
+                f"LmtPrice: {order.lmtPrice} | " +
+                f"Status: {orderState.status} | " +
+                f"OrderState: {orderState.__dict__} | "
+            )
+
+        # order.contract = contract
+        # self.permId2ord[order.permId] = order
+
+    @iswrapper
+    def orderStatus(self, orderId: OrderId, status: str, filled: Decimal,
+                    remaining: Decimal, avgFillPrice: float, permId: int,
+                    parentId: int, lastFillPrice: float, clientId: int,
+                    whyHeld: str, mktCapPrice: float):
+        if self.msgHandler is not None:
+            self.msgHandler.handleOrderStatus(orderId, status, filled, remaining, avgFillPrice)
+        else:
+            print(
+                f"OrderId: {orderId} | " +
+                f"Filled: {filled} | " +
+                f"Remaining: {remaining} | " +
+                f"AvgFillPrice: {avgFillPrice} | " +
+                f"WhyHeld: {whyHeld} | " +
+                f"Status: {status} | " +
+                f"MktCapPrice: {mktCapPrice} | "
+            )
+
+    @iswrapper
+    def execDetails(self, reqId: int, contract: Contract, execution: Execution):
+        if self.msgHandler is not None:
+            self.msgHandler.handleOrderExecution(execution)
+        else:
+            print(
+                f"ReqId: {reqId} | " +
+                f"Asset: {contract.symbol}@{contract.exchange} | " +
+                f"Execution: {execution} | "
+            )
 
     ###########################################
 
@@ -74,7 +221,9 @@ class ApiController(EWrapper):
                 f"Count: {bar.barCount} | " +
                 f"VWAP: {bar.average}"
             )
+            self.lastPrice = bar.close
 
+    @iswrapper
     def historicalDataEnd(self, reqId: int, start: str, end: str):
         if self.msgHandler is not None:
             self.msgHandler.resolvedHistoricalBarData[reqId] = True
@@ -155,6 +304,18 @@ class IBAPI(ApiController, ApiSocket):
         setattr(self, "_thread", thread)
 
     @iswrapper
+    def placeOrder(self, orderId: int, contract: Contract, order: Order):
+        """
+        """
+        super().placeOrder(orderId, contract, order)
+
+    @iswrapper
+    def cancelOrder(self, orderId: int):
+        """
+        """
+        super().cancelOrder(orderId)
+        
+    @iswrapper
     def reqContractDetails(self, reqId: int, contract: Contract):
         """
         msgHandler must >>
@@ -209,9 +370,9 @@ if __name__ == "__main__":
     # contract.currency = "USD"
 
     # paper = True
-    port = 7496
+    # port = 7496
     # if paper == True:
-    # port = 7497
+    port = 7497
 
     tApp = IBAPI('127.0.0.1', port, 0)
     timePassed = 0
@@ -240,15 +401,77 @@ if __name__ == "__main__":
             max_month = int(contract.lastTradeDateOrContractMonth)
             front_contract = contract
 
-    tApp.reqHistoricalData(4, front_contract, "", "1 D",
-                           "1 min", "TRADES", 1, 1, True, [])
+    # tApp.reqHistoricalData(4, front_contract, "", "1 D",
+    #                        "1 min", "TRADES", 0, 1, True, [])
+    time.sleep(1)
+    # tApp.reqAccountSummary(9003, "All", "$LEDGER:EUR")
+    tApp.reqAccountUpdates(True, '')
+    tApp.reqPositions()
+    time.sleep(2)
+    from resources.ibapi_orders import Orders
+    # orders = Orders.BracketOrder(tApp.nextValidOrderId, "BUY", 1, 4582.00, 4582.5, 4581.5)
+    orders = [
+        Orders.LimitOrder(tApp.nextValidOrderId, "BUY", 1, 4525)
+    ]
+    for order in orders:
+        order.whatIf = True
+        tApp.placeOrder(order.orderId, front_contract, order)
+        time.sleep(1)
+        tApp.cancelOrder(order.orderId)
     timePassed = 0
-    while True:
+    break_loop = False
+    while not break_loop:
         time.sleep(0.1)
         timePassed += 0.1
-        if timePassed > 125:
-            raise RuntimeError(
-                "Waited more than 5 secs to get contract details")
+        if timePassed > 5:
+            # raise RuntimeError(
+            #     "Waited more than 5 secs to get contract details")
+            tApp.reqAccountUpdates(False, '')
+            tApp.cancelPositions()
+            break_loop = True
+    time.sleep(1)
+    tApp.disconnect()
+    time.sleep(1)
+    exit(0)
+    
+
+    # quit_app = False
+    # while not quit_app:
+    #     time.sleep(0.5)
+    #     for order in orders:
+    #         newPrice = round(4*(0.999 if order.action == "BUY" else 1.001)*tApp.lastPrice)/4
+    #         if abs(newPrice- order.lmtPrice) >= 0.5:
+    #             order.lmtPrice = newPrice
+    #             tApp.placeOrder(order.orderId, front_contract, order)
+    #     timePassed += 0.5
+    #     if timePassed > 150:
+    #         for order in orders:
+    #             tApp.cancelOrder(order.orderId)
+    #         quit_app = True
+
+    time.sleep(1)
+    tApp.disconnect()
+    time.sleep(1)
+
+# OpenOrder. PermId:  1027172670 ClientId: 0  OrderId: 19 Account: DU2870980 Symbol: ES SecType: FUT Exchange: GLOBEX Action: BUY OrderType: LMT TotalQty: 1.0 CashQty: 0.0 LmtPrice: 4582.0 AuxPrice: 0.0 Status: Submitted
+# OrderStatus. Id: 19 Status: Submitted Filled: 0.0 Remaining: 1.0 AvgFillPrice: 0.0 PermId: 1027172670 ParentId: 0 LastFillPrice: 0.0 ClientId: 0 WhyHeld:  MktCapPrice: 0.0
+
+# OpenOrder. PermId:  1027172671 ClientId: 0  OrderId: 20 Account: DU2870980 Symbol: ES SecType: FUT Exchange: GLOBEX Action: SELL OrderType: LMT TotalQty: 1.0 CashQty: 0.0 LmtPrice: 4582.5 AuxPrice: 0.0 Status: PreSubmitted
+# OrderStatus. Id: 20 Status: PreSubmitted Filled: 0.0 Remaining: 1.0 AvgFillPrice: 0.0 PermId: 1027172671 ParentId: 19 LastFillPrice: 0.0 ClientId: 0 WhyHeld: child MktCapPrice: 0.0
+
+# OpenOrder. PermId:  1027172672 ClientId: 0  OrderId: 21 Account: DU2870980 Symbol: ES SecType: FUT Exchange: GLOBEX Action: SELL OrderType: STP TotalQty: 1.0 CashQty: 0.0 LmtPrice: 0.0 AuxPrice: 4581.5 Status: PreSubmitted
+# OrderStatus. Id: 21 Status: PreSubmitted Filled: 0.0 Remaining: 1.0 AvgFillPrice: 0.0 PermId: 1027172672 ParentId: 19 LastFillPrice: 0.0 ClientId: 0 WhyHeld: child,trigger MktCapPrice: 0.0
+
+
+# OpenOrder. PermId:  1027172672 ClientId: 0  OrderId: 21 Account: DU2870980 Symbol: ES SecType: FUT Exchange: GLOBEX Action: SELL OrderType: STP TotalQty: 1.0 CashQty: 0.0 LmtPrice: 0.0 AuxPrice: 4581.5 Status: PreSubmitted
+# OrderStatus. Id: 21 Status: PreSubmitted Filled: 0.0 Remaining: 1.0 AvgFillPrice: 0.0 PermId: 1027172672 ParentId: 19 LastFillPrice: 0.0 ClientId: 0 WhyHeld: child,trigger MktCapPrice: 0.0
+
+# OpenOrder. PermId:  1027172672 ClientId: 0  OrderId: 21 Account: DU2870980 Symbol: ES SecType: FUT Exchange: GLOBEX Action: SELL OrderType: STP TotalQty: 1.0 CashQty: 0.0 LmtPrice: 0.0 AuxPrice: 4581.5 Status: PreSubmitted
+# OrderStatus. Id: 21 Status: PreSubmitted Filled: 0.0 Remaining: 1.0 AvgFillPrice: 0.0 PermId: 1027172672 ParentId: 19 LastFillPrice: 0.0 ClientId: 0 WhyHeld: child,trigger MktCapPrice: 0.0
+
+# OpenOrder. PermId:  1027172672 ClientId: 0  OrderId: 21 Account: DU2870980 Symbol: ES SecType: FUT Exchange: GLOBEX Action: SELL OrderType: STP TotalQty: 1.0 CashQty: 0.0 LmtPrice: 0.0 AuxPrice: 4581.5 Status: PreSubmitted
+# OrderStatus. Id: 21 Status: PreSubmitted Filled: 0.0 Remaining: 1.0 AvgFillPrice: 0.0 PermId: 1027172672 ParentId: 19 LastFillPrice: 0.0 ClientId: 0 WhyHeld: child,trigger MktCapPrice: 0.0
+
 
     print('Done')
 

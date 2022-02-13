@@ -131,11 +131,16 @@ class Asset(Contract):
         self.client.client_adapter.reqHistoricalData(
             reqId, self.contract, "", BarDuration[bar_size.value], bar_size.value, "TRADES", 0, 1, True, [])
 
+        # try:
         wait_until(
             condition_function=lambda: self.client.resolvedHistoricalBarData[reqId],
             seconds_to_wait=15,
             msg=f"Waited more than 15 secs to get {bar_size.value} bars for: {self.contract.symbol}@{self.contract.exchange}"
         )
+        # except:
+        #     self.unsubscribe_bar_signal(reqId)
+        #     raise RuntimeError(f"Could not subscribe {bar_size.value} bars for: {self.contract.symbol}@{self.contract.exchange}")
+        # finally:
         self.client.resolvedHistoricalBarData.pop(reqId)
 
         return reqId

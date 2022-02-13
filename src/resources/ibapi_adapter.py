@@ -42,9 +42,9 @@ class ApiController(EWrapper):
         print("\n[Connected]")
         time.sleep(0.1)
 
-
     ###########################################
 
+    # reqAccountUpdates
     @iswrapper
     def updateAccountValue(self, key: str, val: str, currency: str,
                            accountName: str):
@@ -93,6 +93,8 @@ class ApiController(EWrapper):
     #     super().accountDownloadEnd(accountName)
     #     print("AccountDownloadEnd. Account:", accountName)
 
+    ###########################################
+
     # @iswrapper
     # def accountSummary(self, reqId: int, account: str, tag: str, value: str,
     #                    currency: str):
@@ -105,6 +107,8 @@ class ApiController(EWrapper):
     #     super().accountSummaryEnd(reqId)
     #     print("AccountSummaryEnd. ReqId:", reqId)
 
+    ###########################################
+    
     # @iswrapper
     # def position(self, account: str, contract: Contract, position: Decimal,
     #              avgCost: float):
@@ -124,7 +128,7 @@ class ApiController(EWrapper):
 
     ###########################################
 
-    # nextValidId, openOrder
+    # reqIds
     @iswrapper
     def nextValidId(self, orderId: int):
         if self.msgHandler is not None:
@@ -134,6 +138,9 @@ class ApiController(EWrapper):
             self.nextValidOrderId = orderId
             print(f"nextValidOrderId: {orderId}")
 
+    ###########################################
+
+    # placeOrder
     @iswrapper
     def openOrder(self, orderId: OrderId, contract: Contract, order: Order,
                   orderState: OrderState):
@@ -150,9 +157,6 @@ class ApiController(EWrapper):
                 f"Status: {orderState.status} | " +
                 f"OrderState: {orderState.__dict__} | "
             )
-
-        # order.contract = contract
-        # self.permId2ord[order.permId] = order
 
     @iswrapper
     def orderStatus(self, orderId: OrderId, status: str, filled: Decimal,
@@ -304,8 +308,19 @@ class IBAPI(ApiController, ApiSocket):
         setattr(self, "_thread", thread)
 
     @iswrapper
+    def reqIds(self):
+        """
+        msgHandler should >>
+            utilize: nextValidOrderId = orderId
+            init bool: orderIdObtained = False
+        """
+        super().reqIds(-1)
+
+    @iswrapper
     def placeOrder(self, orderId: int, contract: Contract, order: Order):
         """
+        msgHandler must >>
+            define funcs: handleOpenOrder, handleOrderStatus, handleOrderExecution
         """
         super().placeOrder(orderId, contract, order)
 
@@ -315,6 +330,26 @@ class IBAPI(ApiController, ApiSocket):
         """
         super().cancelOrder(orderId)
         
+    @iswrapper
+    def reqAccountUpdates(self, subscribe:bool, acctCode:str):
+        """
+        msgHandler must >>
+            define funcs: updateAccountData, updatePositionData, updateAccountData
+        """
+        super().reqAccountUpdates(subscribe, acctCode)
+
+    # @iswrapper
+    # def reqPositions(self):
+    #     """
+    #     """
+    #     super().reqPositions(self)
+
+    # @iswrapper
+    # def cancelPositions(self):
+    #     """
+    #     """
+    #     super().cancelPositions()
+
     @iswrapper
     def reqContractDetails(self, reqId: int, contract: Contract):
         """

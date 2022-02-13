@@ -1,21 +1,25 @@
 
 from __future__ import annotations
 from typing import Dict, TYPE_CHECKING
+from ibapi.order import Order
+from ibapi.order_state import OrderState
+from ibapi.execution import Execution
 
 import pytz
 import time
 import arrow
 import copy
 import queue
+from decimal import Decimal
 
-from threading import Thread
+from threading import Lock, Thread
 
 # from ibapi.wrapper import EWrapper
 # from ibapi.client import EClient
 from ibapi.utils import iswrapper
 # from ibapi.order import Order
 from ibapi.contract import Contract, ContractDetails
-from ibapi.common import ListOfHistoricalTickLast, TagValueList, BarData, TickerId
+from ibapi.common import ListOfHistoricalTickLast, OrderId, TagValueList, BarData, TickerId
 from ibapi.ticktype import TickTypeEnum
 
 from influxdb_client import InfluxDBClient
@@ -30,6 +34,7 @@ class ApiController:
     def __init__(self, msgHandler: RobotClient = None, time_zone=ClockController.time_zone):
         self.msgHandler = msgHandler
         self.default_tz = pytz.timezone(time_zone)
+        self._acc_info = dict()
 
         if msgHandler is None:
             self.resolved_contract = []
@@ -44,6 +49,113 @@ class ApiController:
     def connectAck(self):
         print("\n[Connected]")
         time.sleep(0.1)
+
+    ###########################################
+    
+    # reqAccountUpdates
+    @iswrapper
+    def updateAccountValue(self, key: str, val: str, currency: str,
+                           accountName: str):
+        if self.msgHandler is not None:
+            if key in self.msgHandler.accountInfoKeys and currency in ['USD']:
+                self.msgHandler.updateAccountData(key, val)
+        else:
+            if key in ['TotalCashBalance','RealizedPnL','UnrealizedPnL'] and currency in ['USD']:
+                print(
+                    f"Account: {accountName} | " +
+                    f"{key}: {val} {currency} | "
+                )
+
+
+    @iswrapper
+    def updatePortfolio(self, contract: Contract, position: Decimal,
+                        marketPrice: float, marketValue: float,
+                        averageCost: float, unrealizedPNL: float,
+                        realizedPNL: float, accountName: str):
+        if self.msgHandler is not None:
+            self.msgHandler.updatePositionData(contract, position)
+        else:
+            print(
+                f"Account: {accountName} | " +
+                f"Asset: {contract.symbol}@{contract.primaryExchange} | " +
+                f"Position: {position} | " +
+                f"MarketPrice: {marketPrice} | " +
+                f"MarketValue: {marketValue} | " +
+                f"AverageCost: {averageCost} | " +
+                f"UnrealizedPNL: {unrealizedPNL} | " +
+                f"RealizedPNL: {realizedPNL} | "
+            )
+
+    @iswrapper
+    def updateAccountTime(self, timeStamp: str):
+        if self.msgHandler is not None:
+            if 'LastUpdate' in self.msgHandler.accountInfoKeys:
+                self.msgHandler.updateAccountData('LastUpdate', timeStamp)
+        else:
+            print(
+                f"TS: {timeStamp} | "
+            )
+
+    ###########################################
+
+    # reqIds
+    @iswrapper
+    def nextValidId(self, orderId: int):
+        if self.msgHandler is not None:
+            self.msgHandler.nextValidOrderId = orderId
+            self.msgHandler.orderIdObtained = True
+        else:
+            self.nextValidOrderId = orderId
+            print(f"nextValidOrderId: {orderId}")
+
+    ###########################################
+
+    # placeOrder
+    @iswrapper
+    def openOrder(self, orderId: OrderId, contract: Contract, order: Order,
+                  orderState: OrderState):
+        if self.msgHandler is not None:
+            self.msgHandler.handleOpenOrder(orderId, contract, order, orderState)
+        else:
+            print(
+                f"OrderId: {orderId} | " +
+                f"Asset: {contract.symbol}@{contract.exchange} | " +
+                f"Action: {order.action} | " +
+                f"OrderType: {order.orderType} | " +
+                f"TotalQty: {order.totalQuantity} | " +
+                f"LmtPrice: {order.lmtPrice} | " +
+                f"Status: {orderState.status} | " +
+                f"OrderState: {orderState.__dict__} | "
+            )
+
+    @iswrapper
+    def orderStatus(self, orderId: OrderId, status: str, filled: Decimal,
+                    remaining: Decimal, avgFillPrice: float, permId: int,
+                    parentId: int, lastFillPrice: float, clientId: int,
+                    whyHeld: str, mktCapPrice: float):
+        if self.msgHandler is not None:
+            self.msgHandler.handleOrderStatus(orderId, status, filled, remaining, avgFillPrice)
+        else:
+            print(
+                f"OrderId: {orderId} | " +
+                f"Filled: {filled} | " +
+                f"Remaining: {remaining} | " +
+                f"AvgFillPrice: {avgFillPrice} | " +
+                f"WhyHeld: {whyHeld} | " +
+                f"Status: {status} | " +
+                f"MktCapPrice: {mktCapPrice} | "
+            )
+
+    @iswrapper
+    def execDetails(self, reqId: int, contract: Contract, execution: Execution):
+        if self.msgHandler is not None:
+            self.msgHandler.handleOrderExecution(execution)
+        else:
+            print(
+                f"ReqId: {reqId} | " +
+                f"Asset: {contract.symbol}@{contract.exchange} | " +
+                f"Execution: {execution} | "
+            )
 
     ###########################################
 
@@ -153,17 +265,8 @@ class ApiSocket:
         # self.requests = queue.Queue(100)
         # self.results = {}
         self._connected = False
-
-    # def run(self):
-    #     while self.isConnected():
-    #         time.sleep(1)
-    #         try:
-    #             _ = self.requests.get(True)
-    #         except:
-    #             pass
-
-    # def queryDB(self, reqId, query):
-    #     pass
+        self._validId = 1
+        self._validIdMutex = Lock()
 
     def connect(self, org, token, url):
         try:
@@ -175,8 +278,9 @@ class ApiSocket:
 
             self._connected = True
             self._runningRequests = set()
+            self._account_updates = False
 
-            self.connectAck()
+            self.wrapper.connectAck()
         except Exception as e:
             if self.wrapper:
                 self.wrapper.error(-1, 100,
@@ -197,6 +301,36 @@ class ApiSocket:
 
     def isConnected(self):
         return self._connected
+
+    ########
+    
+    def reqAccountUpdates(self):
+        accountInfoKeys = [
+            'TotalCashBalance',
+            'RealizedPnL',
+            'UnrealizedPnL'
+        ]
+        time_counter = 3*60
+        while self._account_updates:
+            if time_counter >= 3*60:
+                time_counter = 0
+                # TODO: loops
+                # for key in accountInfoKeys:
+                #     self.wrapper.updateAccountValue(key, val, 'USD', '')
+                # for pos
+                # self.wrapper.updatePortfolio(contract, position, marketPrice, marketValue, averageCost, unrealizedPNL, realizedPNL, '')
+                # self.wrapper.updateAccountTime(timeStamp)
+            else:
+                time.sleep(1)
+                time_counter += 1
+
+    def reqIds(self):
+        if self._validIdMutex.acquire(True):
+            self.wrapper.nextValidId(self._validId)
+            self._validId += 1
+        self._validIdMutex.release()
+
+    ########
 
     def reqContractDetails(self, reqId: int, contract: Contract):
         if contract.secType == "STK":
@@ -343,9 +477,10 @@ class ApiSocket:
         histQuery = query.replace("v.timeRangeStart", str(timeStart.int_timestamp)) \
             .replace("v.timeRangeStop", str(timeStop.int_timestamp))
         tables = self.query_api.query(histQuery, org=self.org)
-        for record in tables[0].records:
-            bar = row2bar(record.values)
-            self.wrapper.historicalData(reqId, bar)
+        if len(tables) > 0:
+            for record in tables[0].records:
+                bar = row2bar(record.values)
+                self.wrapper.historicalData(reqId, bar)
 
         self.wrapper.historicalDataEnd(reqId, timeStart, timeStop)
         self.wrapper.error(
@@ -368,7 +503,7 @@ class ApiSocket:
             for record in tables[0].records:
                 bar = row2bar(record.values)
                 self.wrapper.historicalData(reqId, bar)
-            time.sleep(1)
+            time.sleep(0.1)
 
         self.wrapper.error(
             reqId, 0, f"ReqId: {reqId} | Successfully unsubscribed.")
@@ -392,9 +527,72 @@ class INFLUX(ApiController, ApiSocket):
 
         self.connect(org, token, url)
 
-        # thread = Thread(target=self.run)
-        # thread.start()
-        # setattr(self, "_thread", thread)
+    ########
+
+    @iswrapper
+    def reqIds(self):
+        """
+        msgHandler should >>
+            utilize: nextValidOrderId = orderId
+            init bool: orderIdObtained = False
+        """
+        thread = Thread(target=super().reqIds,
+                        args=())
+        thread.start()
+        setattr(self, f"_thread_reqIds", thread) # overwrite previous thread
+
+    @iswrapper
+    def placeOrder(self, orderId: int, contract: Contract, order: Order):
+        """
+        msgHandler must >>
+            define funcs: handleOpenOrder, handleOrderStatus, handleOrderExecution
+        """
+        # super().placeOrder(orderId, contract, order)
+        orderState = OrderState()
+        orderState.initMarginChange = "0"
+        orderState.maintMarginChange = "0"
+        orderState.commission = 0
+        self.openOrder(orderId, contract, order, orderState)
+
+    @iswrapper
+    def cancelOrder(self, orderId: int):
+        """
+        """
+        # super().cancelOrder(orderId)
+        pass
+        
+    @iswrapper
+    def reqAccountUpdates(self, subscribe:bool, acctCode:str):
+        """
+        msgHandler must >>
+            define funcs: updateAccountData, updatePositionData, updateAccountData
+        """
+        if subscribe:
+            self._account_updates = True
+            thread: Thread = getattr(self, f"_thread_accUpd", None)
+            if thread is None or not thread.is_alive():
+                thread = Thread(target=super().reqAccountUpdates,
+                                args=())
+                thread.start()
+                setattr(self, f"_thread_accUpd", thread) # overwrite previous thread
+        elif not subscribe:
+            self._account_updates = False            
+
+    @iswrapper
+    def reqPositions(self):
+        """
+        """
+        # super().reqPositions(self)
+        pass
+
+    @iswrapper
+    def cancelPositions(self):
+        """
+        """
+        # super().cancelPositions()
+        pass
+
+    ########
 
     @iswrapper
     def reqContractDetails(self, reqId: int, contract: Contract):
@@ -406,7 +604,6 @@ class INFLUX(ApiController, ApiSocket):
                         args=(reqId, contract))
         thread.start()
         setattr(self, f"_thread_{reqId}", thread)
-        getattr
 
     @iswrapper
     def reqHistoricalTicks(self, reqId: int, contract: Contract, startDateTime: str,

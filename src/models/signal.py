@@ -37,4 +37,4 @@ class Signal:
         if N is None:
             return np.array(self.data)
         else:
-            return np.array(self.data[-N:])
+            return np.array(self.data)[-N:]

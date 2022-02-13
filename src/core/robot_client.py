@@ -71,8 +71,9 @@ class RobotClient:
             msg="Waited more than 5 secs to establish connection"
         )
 
-        self.client_adapter.reqAccountUpdates(True, '')
-        self.client_adapter.reqPositions()
+        # self.client_adapter.reqAccountUpdates(True, '')
+        # self.client_adapter.reqPositions()
+        self.nextValidOrderId = -1
         self.get_new_orderId()
 
     def client_connected(self):
@@ -89,7 +90,7 @@ class RobotClient:
 
     def get_new_orderId(self):
         self.orderIdObtained = False
-        self.client_adapter.reqIds(-1)
+        self.client_adapter.reqIds()
         wait_until(
             condition_function=lambda: self.orderIdObtained,
             seconds_to_wait=5,
@@ -194,8 +195,11 @@ class RobotClient:
     
 
     def updateBarData(self, reqId, bar):
-        self.assetCache[self.request_signal_map[reqId]
-                        ].updateBarData(reqId, bar)
+        try:
+            self.assetCache[self.request_signal_map[reqId]
+                            ].updateBarData(reqId, bar)
+        except:
+            pass
 
     def updatePositionData(self, contract, position):
         asset_key = f"{contract.symbol}@{contract.primaryExchange}"
@@ -272,9 +276,10 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     import numpy as np
 
-    # ClockController.set_utcnow(arrow.get(datetime.datetime(
-    #     2020, 7, 13, 9, 30, 0), ClockController.time_zone))
-    robot_client = RobotClient(cliendId=0, live=False)#, simulator="influx")
+    ClockController.set_utcnow(arrow.get(datetime.datetime(
+        2020, 7, 13, 9, 30, 0), ClockController.time_zone))
+    # robot_client = RobotClient(cliendId=0, live=False)
+    robot_client = RobotClient(cliendId=0, simulator="influx")
     es_key = robot_client.subscribe_asset('ES', 'GLOBEX', 'FUT')
     # es_key = robot_client.subscribe_asset('SPY', 'SMART', 'STK')
 
@@ -317,7 +322,12 @@ if __name__ == "__main__":
         low_price = round(4*(low_price + trend))/4
 
         if i % 50 == 0:
-            print(f"Open Long: {robot_client.assetCache[es_key].openLongQty} | Short: {robot_client.assetCache[es_key].openShortQty} | Position: {robot_client.assetCache[es_key].position}")
+            print(
+                f"Open Long: {robot_client.assetCache[es_key].openLongQty} | " +
+                f"Short: {robot_client.assetCache[es_key].openShortQty} | " +
+                f"Position: {robot_client.assetCache[es_key].position} | " +
+                f"PnL: {float(robot_client.account_info['RealizedPnL']) + float(robot_client.account_info['UnrealizedPnL'])}"
+            )
 
         # # 2: high; 3: low
         # high_price = round(4*(data1[-5:, 2].mean() + data1[-5:, 2].std()))/4

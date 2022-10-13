@@ -111,33 +111,46 @@ FILE_SPECS = {
 class FutureSwinger(krs.Model):
     def __init__(self):
         super(FutureSwinger, self).__init__()
-        self.conv1 = {
-            bar.value: lyr.Conv1D(5, bar_length//10, activation='relu', use_bias=True, name=f"CONV1_{bar.name}")
+        self.lstm ={
+            bar.value: lyr.LSTM(4, return_sequences=True, return_state=True, name=f"LSTM_{bar.name}")
             for bar, bar_length in INPUT_DATA_SPECS.items()
         }
-        self.conv2 = {
-            bar.value: lyr.Conv1D(10, bar_length - bar_length//10 + 1, activation='relu', use_bias=True, name=f"CONV2_{bar.name}")
-            for bar, bar_length in INPUT_DATA_SPECS.items()
-        }
-        self.flatten = {
-            bar.value: lyr.Flatten(name=f"FLAT_{bar.name}")
-            for bar in INPUT_DATA_SPECS.keys()
-        }
 
-        self.dense = {
-            bar.value: lyr.Dense(10, activation='relu', use_bias=True, name=f"DENSE_{bar.name}")
-            for bar in INPUT_DATA_SPECS.keys()
-        }
-        self.dense_tod = lyr.Dense(10, activation='relu', use_bias=True, name=f"DENSE_TOD")
 
-        # self.dense_high = {
-        #     bar.value: lyr.Dense(64, activation='relu', use_bias=True, name=f"DENSE_HIGH_{bar.name}")
-        #     for bar in OUTPUT_DATA_SPECS.keys()
+        # self.conv1 = {
+        #     bar.value: lyr.Conv1D(5, bar_length//10, activation='relu', use_bias=True, name=f"CONV1_{bar.name}")
+        #     for bar, bar_length in INPUT_DATA_SPECS.items()
         # }
-        # self.dense_low = {
-        #     bar.value: lyr.Dense(64, activation='relu', use_bias=True, name=f"DENSE_LOW_{bar.name}")
-        #     for bar in OUTPUT_DATA_SPECS.keys()
+        # self.conv2 = {
+        #     bar.value: lyr.Conv1D(10, bar_length - bar_length//10 + 1, activation='relu', use_bias=True, name=f"CONV2_{bar.name}")
+        #     for bar, bar_length in INPUT_DATA_SPECS.items()
         # }
+        # self.flatten = {
+        #     bar.value: lyr.Flatten(name=f"FLAT_{bar.name}")
+        #     for bar in INPUT_DATA_SPECS.keys()
+        # }
+
+        # self.dense = {
+        #     bar.value: lyr.Dense(10, activation='relu', use_bias=True, name=f"DENSE_{bar.name}")
+        #     for bar in INPUT_DATA_SPECS.keys()
+        # }
+        self.dense_tod = lyr.Dense(20, activation='relu', use_bias=True, name=f"DENSE_TOD")
+
+        # self.dense_high1 = lyr.Dense(64, activation='relu', use_bias=True, name=f"DENSE_HIGH1")
+        # self.dense_low1 = lyr.Dense(64, activation='relu', use_bias=True, name=f"DENSE_LOW1")
+        # self.dense_high2 = lyr.Dense(32, activation='relu', use_bias=True, name=f"DENSE_HIGH2")
+        # self.dense_low2 = lyr.Dense(32, activation='relu', use_bias=True, name=f"DENSE_LOW2")
+        # self.full_high = lyr.Dense(10, activation='sigmoid', use_bias=True, name=f"FULL_HIGH")
+        # self.full_low = lyr.Dense(10, activation='sigmoid', use_bias=True, name=f"FULL_LOW")
+
+        self.dense_high = {
+            bar.value: lyr.Dense(32, activation='relu', use_bias=True, name=f"DENSE_HIGH_{bar.name}")
+            for bar in OUTPUT_DATA_SPECS.keys()
+        }
+        self.dense_low = {
+            bar.value: lyr.Dense(32, activation='relu', use_bias=True, name=f"DENSE_LOW_{bar.name}")
+            for bar in OUTPUT_DATA_SPECS.keys()
+        }
         self.full_high = {
             bar.value: lyr.Dense(64, activation='softmax', use_bias=True, name=f"FULL_HIGH_{bar.name}")
             for bar in OUTPUT_DATA_SPECS.keys()
@@ -149,24 +162,34 @@ class FutureSwinger(krs.Model):
     
     def call(self, inputs):
         bar_data = inputs[:, :-1]
-        conv_out = {}
+        lstm_out = {}
+        lstm_error = {}
+        cell_out = {}
         start_idx = 0
+        # for bar, bar_length in INPUT_DATA_SPECS.items():
+        #     conv_out[bar.value] = (
+        #         # self.dense[bar.value](
+        #             self.flatten[bar.value](
+        #                 self.conv2[bar.value](
+        #                     self.conv1[bar.value](
+        #                         bar_data[:, start_idx:start_idx+bar_length]
+        #                     )
+        #                 )
+        #             )
+        #         # )
+        #     )
+        #     start_idx += bar_length
         for bar, bar_length in INPUT_DATA_SPECS.items():
-            conv_out[bar.value] = self.flatten[bar.value](
-                self.conv2[bar.value](
-                    self.conv1[bar.value](
-                        bar_data[:, start_idx:start_idx+bar_length]
-                    )
+            lstm_out[bar.value], _, cell_out[bar.value] = (
+                self.lstm[bar.value](
+                    bar_data[:, start_idx:start_idx+bar_length]
                 )
             )
+            lstm_error[bar.value] = tf.math.reduce_sum(tf.math.square(lstm_out[bar.value][:, :-1] - bar_data[:, start_idx+1:start_idx+bar_length, :-1]))
             start_idx += bar_length
 
-        dense_out = {
-            bar.value: self.dense[bar.value](conv_out[bar.value])
-            for bar in INPUT_DATA_SPECS.keys()
-        }
-
-        bar_out = tf.concat([d_out for d_out in dense_out.values()], axis=-1)
+        bar_out = tf.concat([c_out for c_out in cell_out.values()], axis=-1)
+        self.lstm_mse = tf.math.sqrt(tf.math.reduce_sum([err for err in lstm_error.values()])/bar_data.shape[1])
 
         tod = inputs[:, -1:0, 0]
         tod_out = self.dense_tod(tod)
@@ -175,9 +198,9 @@ class FutureSwinger(krs.Model):
         high_out = tf.concat([
             tf.expand_dims(tf.expand_dims(
                 self.full_high[bar.value](
-                    # self.dense_high[bar.value](
+                    self.dense_high[bar.value](
                         combined_out
-                    # )
+                    )
                 ), axis=-2
             ), axis=-2)
             for bar in OUTPUT_DATA_SPECS.keys()
@@ -185,15 +208,41 @@ class FutureSwinger(krs.Model):
         low_out = tf.concat([
             tf.expand_dims(tf.expand_dims(
                 self.full_low[bar.value](
-                    # self.dense_low[bar.value](
+                    self.dense_low[bar.value](
                         combined_out
-                    # )
+                    )
                 ), axis=-2
             ), axis=-2)
             for bar in OUTPUT_DATA_SPECS.keys()
         ], axis=-3)
+        outputs = tf.concat([
+            high_out,
+            low_out
+        ], axis=-2)
+        
+        # high_out = tf.expand_dims((
+        #     self.full_high(
+        #         self.dense_high2(
+        #             self.dense_high1(
+        #                 combined_out
+        #             )
+        #         )
+        #     )
+        # ), axis=-1)
+        # low_out = tf.expand_dims((
+        #     self.full_low(
+        #         self.dense_low2(
+        #             self.dense_low1(
+        #                 combined_out
+        #             )
+        #         )
+        #     )
+        # ), axis=-1)
 
-        outputs = tf.concat([high_out, low_out], axis=-2)
+        # outputs = tf.concat([
+        #     1 + tf.math.cumsum(high_out/50, axis=-2),
+        #     1 - tf.math.cumsum(low_out/50, axis=-2)
+        # ], axis=-1)
         return outputs
         
     @staticmethod
@@ -243,7 +292,7 @@ class FutureSwinger(krs.Model):
             [[val["high"], val["low"]]]
             for val in dict_obj["matchData"].values()
         ], axis=0))
-        # matchData1 = tf.transpose(tf.concat([
+        # matchData = tf.transpose(tf.concat([
         #     [tf_accumulate(matchData[0], 'max')/currPrice], 
         #     [tf_accumulate(matchData[1], 'min')/currPrice]
         # ], axis=0))
@@ -293,7 +342,7 @@ if __name__ == "__main__":
     optimizer = tf.keras.optimizers.Adam()
     def loss(model, x, y, training):
         y_ = model(x, training=training)
-        return krs.losses.CategoricalCrossentropy()(y_true=y, y_pred=y_), y_
+        return krs.losses.CategoricalCrossentropy()(y_true=y, y_pred=y_) + model.lstm_mse, y_
     def grad(model, inputs, targets):
         with tf.GradientTape() as tape:
             loss_value, y_ = loss(model, inputs, targets, training=True)
@@ -324,7 +373,7 @@ if __name__ == "__main__":
                   ('='*int(20*j), 100*j), end='\r')
         # End epoch
         train_loss_results.append(epoch_loss_avg.result())
-        train_accuracy_results.append(epoch_accuracy.result())
+        # train_accuracy_results.append(epoch_accuracy.result())
         str_train = f"Epoch {epoch:03d}: Training (Loss, Accuracy): {epoch_loss_avg.result():.3f}, {epoch_accuracy.result():.3%}"
 
         i = 0
@@ -345,7 +394,7 @@ if __name__ == "__main__":
                   ('='*int(20*j), 100*j), end='\r')
         # End epoch
         valid_loss_results.append(epoch_loss_avg.result())
-        valid_accuracy_results.append(epoch_accuracy.result())
+        # valid_accuracy_results.append(epoch_accuracy.result())
 
 
         print(f"{str_train} | Validation (Loss, Accuracy): {epoch_loss_avg.result():.3f}, {epoch_accuracy.result():.3%}")
@@ -361,8 +410,10 @@ if __name__ == "__main__":
     buckets = np.concatenate([1 + buckets, (1 - buckets)], axis=0)
     for input_batch, output_batch in valid_ds.take(5):
         pred = model.predict(input_batch)
-        plt.plot([5, 15, 30, 60, 60*5, 60*10, 60*15, 60*30, 60*60, 60*60*2], np.sum(output_batch[0].numpy() * buckets, axis=-1))
-        plt.plot([5, 15, 30, 60, 60*5, 60*10, 60*15, 60*30, 60*60, 60*60*2], np.sum(pred[0] * buckets, axis=-1))
+        # plt.plot([5, 15, 30, 60, 60*5, 60*10, 60*15, 60*30, 60*60, 60*60*2], np.sum(output_batch[0].numpy() * buckets, axis=-1))
+        # plt.plot([5, 15, 30, 60, 60*5, 60*10, 60*15, 60*30, 60*60, 60*60*2], np.sum(pred[0] * buckets, axis=-1))
+        plt.plot([5, 15, 30, 60, 60*5, 60*10, 60*15, 60*30, 60*60, 60*60*2], output_batch[0].numpy())
+        plt.plot([5, 15, 30, 60, 60*5, 60*10, 60*15, 60*30, 60*60, 60*60*2], pred[0])
         plt.show()
         print('next')
     
@@ -525,7 +576,7 @@ if __name__ == "__main__":
 
         if len(dataWindow) > 5*60*60//5:
             contract_file = f"U:/MarketData/{es_key.replace('@', '_')}/HLS/{curr_date.format('YYYYMMDD')}.json"
-            with open(contract_file, 'w') as f:
+                                                                                 with open(contract_file, 'w') as f:
                 json.dump(dataWindow, f)
         gc.collect()
 

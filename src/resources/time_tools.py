@@ -25,7 +25,7 @@ class ClockController:
         return ClockController._simulated_time
 
 
-def wait_until(condition_function, seconds_to_wait: int, msg: str = "", increment: float = 0.1):
+def wait_until(condition_function, seconds_to_wait: int, msg: str = "", increment: float = 0.001):
     waitUntil = time.time() + seconds_to_wait
     while not condition_function():
         if time.time() > waitUntil:

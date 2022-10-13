@@ -1,5 +1,6 @@
 
 from __future__ import annotations
+from msilib.schema import Error
 from threading import Lock
 from typing import Dict, TYPE_CHECKING
 
@@ -35,20 +36,25 @@ class Asset(Contract):
         self.client = client
         self.signals: Dict[str, Signal] = dict()
         self.order_mutex = Lock()
-        self.openOrders = dict()
-        self.openOrdersStatus = dict()
-        self.position_mutex = Lock()
-        self.openOrderQty = dict()
-        self.position = 0
-        self.initMargin = 0
-        self.maintMargin = 0
-        self.commission = 0
 
         self.contract = Contract()
         self.contract.symbol = symbol
         self.contract.exchange = exchange
         self.contract.currency = 'USD'
         self.contract.secType = secType
+
+        self.initMargin = 0
+        self.maintMargin = 0
+        self.commission = 0
+
+        # TODO: separate data by agent
+        self.openOrders = dict()
+        self.openOrdersStatus = dict()
+        self.position_mutex = Lock()
+        self.openOrderQty = dict()
+        self.filledOrders = set()
+        self.positionLogs = list()
+        self.position = 0
 
         if not self.client.client_connected():
             self.client.connect_client()
@@ -88,6 +94,8 @@ class Asset(Contract):
         if not (self.openOrderQty.get(orderId, 1) == 0 or cancel):
             return
         if orderId in self.openOrderQty:
+            if not cancel:
+                self.filledOrders.add(orderId)
             self.openOrders.pop(orderId)
             self.openOrdersStatus.pop(orderId)
             self.openOrderQty.pop(orderId)
@@ -199,3 +207,17 @@ class Asset(Contract):
         qty = sum(qty for qty in self.openOrderQty.values() if qty > 0)
         self.position_mutex.release()
         return qty
+
+    @property
+    def getCurrPrice(self):
+        if len(self.signals) == 0:
+            raise AttributeError(f"ERROR    Cannot get current price of {self.asset_key} without subscribing to at least 1 signal.")
+        return self.signals[list(self.signals.keys())[0]].data[-1][4]
+
+    @property
+    def getPnL(self):
+        curr_price = self.getCurrPrice
+        pnl = 0
+        for pos, price in self.positionLogs.copy():
+            pnl += (curr_price - price)*pos*50 - self.commission*abs(pos)
+        return pnl

@@ -83,8 +83,8 @@ class RobotClient:
         for asset_key in list(self.assetCache.keys()):
             symbol, exchange = asset_key.split('@')
             self.unsubscribe_asset(symbol, exchange)
-        self.client_adapter.reqAccountUpdates(False, '')
         self.client_adapter.cancelPositions()
+        self.client_adapter.reqAccountUpdates(False, '')
         self.client_adapter.disconnect()
         self.client_adapter = None
 
@@ -127,6 +127,8 @@ class RobotClient:
         asset_key = f"{symbol}@{exchange}"
         for reqId in list(self.assetCache[asset_key].signals.keys()):
             self.unsubscribe_bar_signal(reqId)
+        for orderId in list(self.assetCache[asset_key].openOrders.keys()):
+            self.cancelOrder(orderId)
         self.buffered_positions[asset_key] = self.assetCache[asset_key].position
         self.assetCache.pop(asset_key)
         return asset_key
@@ -177,7 +179,7 @@ class RobotClient:
             )
             self.assetCache[asset_key].cleanUpOrder(orderId, cancel=True)
         self.assetCache[asset_key].order_mutex.release()
-        # TODO: check for success/fail and return
+        return orderId not in self.assetCache[asset_key].filledOrders
 
     def updateOrder(self, orderId, quantity = None, price = None):
         if quantity is None and price is None:
@@ -188,10 +190,11 @@ class RobotClient:
             quantity = abs(self.assetCache[asset_key].openOrderQty[orderId])
         if price is None:
             price = self.assetCache[asset_key].openOrders[orderId].lmtPrice
-        self.cancelOrder(orderId)
-        newOrderId = self.placeOrder(asset_key, action, quantity, price)
-        # TODO: check for success/fail and return
-        return newOrderId
+
+        if self.cancelOrder(orderId):
+            return self.placeOrder(asset_key, action, quantity, price)
+        else:
+            return orderId
     
 
     def updateBarData(self, reqId, bar):
@@ -260,17 +263,10 @@ class RobotClient:
             mult = self.assetCache[asset_key].get_order_sign(orderId)
 
             self.assetCache[asset_key].position += qty*mult
-            self.assetCache[asset_key].openOrderQty[orderId] = self.assetCache[asset_key].openOrders[orderId].totalQuantity + cumQty*mult
+            self.assetCache[asset_key].openOrderQty[orderId] = (self.assetCache[asset_key].openOrders[orderId].totalQuantity - cumQty)*mult
             self.assetCache[asset_key].cleanUpOrder(orderId)
+            self.assetCache[asset_key].positionLogs.append((qty*mult, price))
         self.assetCache[asset_key].position_mutex.release()
-
-        # print(
-        #     f"Execution: {execution} | "
-        # )
-        
-# Execution: ExecId: 0000e1a7.61af68cc.01.01, Time: 20211207  16:01:53, Account: DU2870980,
-# Exchange: GLOBEX, Side: SLD, Shares: 1.000000, Price: 4686.250000, PermId: 1879031808, ClientId: 0,
-# OrderId: 117, Liquidation: 0, CumQty: 1.000000, AvgPrice: 4686.250000, OrderRef: , EvRule: , EvMultiplier: 0.000000, ModelCode: , LastLiquidity: 1 |
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
@@ -299,17 +295,29 @@ if __name__ == "__main__":
     reqId2 = robot_client.subscribe_bar_signal(es_key, BarSize.MIN_05, 50)
     reqId3 = robot_client.subscribe_bar_signal(es_key, BarSize.MIN_30, 50)
     reqId4 = robot_client.subscribe_bar_signal(es_key, BarSize.HRS_01, 50)
+    
+    # reqId5 = robot_client.subscribe_bar_signal(es_key, BarSize.SEC_01, 10000)
 
-    fig = plt.figure()
-    ax1 = fig.add_subplot(4, 1, 1)
-    ax2 = fig.add_subplot(4, 1, 2)
-    ax3 = fig.add_subplot(4, 1, 3)
-    ax4 = fig.add_subplot(4, 1, 4)
-    for i in range(15000):
+    # fig = plt.figure()
+    # ax1 = fig.add_subplot(4, 1, 1)
+    # ax2 = fig.add_subplot(4, 1, 2)
+    # ax3 = fig.add_subplot(4, 1, 3)
+    # ax4 = fig.add_subplot(4, 1, 4)
+
+    real_ts = arrow.utcnow()
+    sim_ts = ClockController.utcnow()
+    eod_ts = arrow.get(datetime.datetime(2020, 7, 13, 16, 00, 0), ClockController.time_zone)
+    logPnL = []
+    closePrice = []
+    stdPrice = []
+
+    while ClockController.utcnow() < eod_ts:
         data1 = robot_client.assetCache[es_key].signals[reqId1].get_numpy()
         data2 = robot_client.assetCache[es_key].signals[reqId2].get_numpy()
         data3 = robot_client.assetCache[es_key].signals[reqId3].get_numpy()
         data4 = robot_client.assetCache[es_key].signals[reqId4].get_numpy()
+    
+        # data5 = robot_client.assetCache[es_key].signals[reqId5].get_numpy()
 
         # print(f"Pending OrderIds:")
         # for orderId, order in robot_client.assetCache[es_key].openOrders.items():
@@ -321,54 +329,64 @@ if __name__ == "__main__":
         high_price = round(4*(high_price + trend))/4
         low_price = round(4*(low_price + trend))/4
 
-        if i % 50 == 0:
+        if ClockController.utcnow().int_timestamp % 50 == 0:
             print(
-                f"Open Long: {robot_client.assetCache[es_key].openLongQty} | " +
-                f"Short: {robot_client.assetCache[es_key].openShortQty} | " +
-                f"Position: {robot_client.assetCache[es_key].position} | " +
-                f"PnL: {float(robot_client.account_info['RealizedPnL']) + float(robot_client.account_info['UnrealizedPnL'])}"
+                f"Open [Long: {robot_client.assetCache[es_key].openLongQty:2d} | " +
+                f"Short: {robot_client.assetCache[es_key].openShortQty:2d}] | " +
+                f"Position: {robot_client.assetCache[es_key].position:=+3d} | " +
+                f"RealizedPnL: {float(robot_client.assetCache[es_key].getPnL):=+9.2f} | " +
+                # f"PnL: {float(robot_client.account_info['RealizedPnL']) + float(robot_client.account_info['UnrealizedPnL'])}"
+                f"Elapsed Time [Real: {(arrow.utcnow() - real_ts).seconds} s | Simulated: {(ClockController.utcnow() - sim_ts).seconds} s]"
             )
+            logPnL += [robot_client.assetCache[es_key].getPnL]
+            closePrice += [data1[-1, 4]]
+            stdPrice += [data1[:, 4].std()]
 
-        # # 2: high; 3: low
-        # high_price = round(4*(data1[-5:, 2].mean() + data1[-5:, 2].std()))/4
-        # low_price = round(4*(data1[-5:, 3].mean() - data1[-5:, 3].std()))/4
+        # 2: high; 3: low
+        high_price = round(4*(data1[-5:, 2].mean() + data1[-5:, 2].std()))/4
+        low_price = round(4*(data1[-5:, 3].mean() - data1[-5:, 3].std()))/4
 
-        if robot_client.assetCache[es_key].openLongQty == 0 and robot_client.assetCache[es_key].position < 3:
+        if robot_client.assetCache[es_key].openLongQty == 0 and robot_client.assetCache[es_key].position < 1:
             buyId = robot_client.placeOrder(es_key, 'BUY', 1, low_price)
         elif robot_client.assetCache[es_key].openLongQty > 0 and buyId in robot_client.assetCache[es_key].openOrders and abs(robot_client.assetCache[es_key].openOrders[buyId].lmtPrice - low_price) > 0.25:
             buyId = robot_client.updateOrder(buyId, price=low_price)
 
-        if robot_client.assetCache[es_key].openShortQty == 0 and robot_client.assetCache[es_key].position > -3:
+        if robot_client.assetCache[es_key].openShortQty == 0 and robot_client.assetCache[es_key].position > -1:
             sellId = robot_client.placeOrder(es_key, 'SELL', 1, high_price)
         elif robot_client.assetCache[es_key].openShortQty > 0 and sellId in robot_client.assetCache[es_key].openOrders and abs(robot_client.assetCache[es_key].openOrders[sellId].lmtPrice - high_price) > 0.25:
             sellId = robot_client.updateOrder(sellId, price=high_price)
 
-        ax1.clear()
-        ax2.clear()
-        ax3.clear()
-        ax4.clear()
+        # ax1.clear()
+        # ax2.clear()
+        # ax3.clear()
+        # ax4.clear()
 
-        ax1.plot(data1[:, 0], data1[:, 2:4])
-        ax1.plot(data1[:, 0], data1[:, 7])
-        ax1.plot(data1[-1, 0], data1[-1, 4], marker='o')
+        # ax1.plot(data1[:, 0], data1[:, 2:4])
+        # ax1.plot(data1[:, 0], data1[:, 7])
+        # ax1.plot(data1[-1, 0], data1[-1, 4], marker='o')
 
-        ax2.plot(data2[:, 0], data2[:, 2:4])
-        ax2.plot(data2[:, 0], data2[:, 7])
-        ax2.plot(data2[-1, 0], data2[-1, 4], marker='o')
+        # ax2.plot(data2[:, 0], data2[:, 2:4])
+        # ax2.plot(data2[:, 0], data2[:, 7])
+        # ax2.plot(data2[-1, 0], data2[-1, 4], marker='o')
 
-        ax3.plot(data3[:, 0], data3[:, 2:4])
-        ax3.plot(data3[:, 0], data3[:, 7])
-        ax3.plot(data3[-1, 0], data3[-1, 4], marker='o')
+        # ax3.plot(data3[:, 0], data3[:, 2:4])
+        # ax3.plot(data3[:, 0], data3[:, 7])
+        # ax3.plot(data3[-1, 0], data3[-1, 4], marker='o')
 
-        ax4.plot(data4[:, 0], data4[:, 2:4])
-        ax4.plot(data4[:, 0], data4[:, 7])
-        ax4.plot(data4[-1, 0], data4[-1, 4], marker='o')
+        # ax4.plot(data4[:, 0], data4[:, 2:4])
+        # ax4.plot(data4[:, 0], data4[:, 7])
+        # ax4.plot(data4[-1, 0], data4[-1, 4], marker='o')
 
-        # ClockController.increment_utcnow(5)
-        plt.pause(0.05)
+        ClockController.increment_utcnow(1)
+        time.sleep(0.025)
+        # plt.pause(0.05)
     # plt.show()
 
     robot_client.disconnect_client()
     time.sleep(1)
+    allData = np.array([logPnL, closePrice, stdPrice]).T
+    allDataNorm = (allData - allData.mean(0))/allData.std(0)
+    allDataCorr = allDataNorm.T @ allDataNorm / allDataNorm.shape[0]
+    print(allDataCorr)
 
     print("Done")

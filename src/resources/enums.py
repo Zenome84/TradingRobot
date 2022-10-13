@@ -7,7 +7,7 @@ class ContractType(Enum):
     FUT = 2
 
 class BarSize(Enum):
-    SEC_01 = "1 sec"
+    SEC_01 = "1 secs"
     SEC_05 = "5 secs"
     SEC_10 = "10 secs"
     SEC_15 = "15 secs"
@@ -32,7 +32,7 @@ class BarSize(Enum):
 #     return ""
 
 BarDuration = {
-    "1 sec": "1800 S",  # 30 mins
+    "1 secs": "1800 S",  # 30 mins
     "5 secs": "3600 S",  # 1 hr
     "10 secs": "14400 S",  # 4 hrs
     "15 secs": "14400 S",  # 4 hrs

@@ -13,7 +13,6 @@ import arrow
 from ibapi.contract import Contract, ContractDetails
 from ibapi.order import Order
 
-from resources.ibapi_orders import Orders
 if TYPE_CHECKING:
     from core.robot_client import RobotClient
 

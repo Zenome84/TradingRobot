@@ -13,7 +13,6 @@ from threading import Thread
 from ibapi.wrapper import EWrapper
 from ibapi.client import EClient
 from ibapi.utils import iswrapper
-# from ibapi.order import Order
 from ibapi.contract import Contract, ContractDetails
 from ibapi.common import ListOfHistoricalTickLast, OrderId, TagValueList, BarData, TickerId
 from ibapi.ticktype import TickTypeEnum
@@ -443,7 +442,7 @@ if __name__ == "__main__":
     tApp.reqAccountUpdates(True, '')
     tApp.reqPositions()
     time.sleep(2)
-    from resources.ibapi_orders import Orders
+    from resources.orders import Orders
     # orders = Orders.BracketOrder(tApp.nextValidOrderId, "BUY", 1, 4582.00, 4582.5, 4581.5)
     orders = [
         Orders.LimitOrder(tApp.nextValidOrderId, "BUY", 1, 4525)

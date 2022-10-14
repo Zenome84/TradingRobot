@@ -16,7 +16,6 @@ import arrow
 from threading import Lock, Thread
 
 from resources.ibapi_adapter import IBAPI
-from resources.ibapi_orders import Orders
 from resources.sim_adapter import INFLUX
 from resources.time_tools import ClockController, wait_until
 from resources.enums import BarDuration, BarSize

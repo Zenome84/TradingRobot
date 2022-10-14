@@ -69,7 +69,7 @@ class ApiController(EWrapper):
         else:
             print(
                 f"Account: {accountName} | " +
-                f"Asset: {contract.symbol}@{contract.primaryExchange} | " +
+                f"Asset: {contract.symbol}@{contract.exchange} | " +
                 f"Position: {position} | " +
                 f"MarketPrice: {marketPrice} | " +
                 f"MarketValue: {marketValue} | " +
@@ -117,7 +117,7 @@ class ApiController(EWrapper):
     #     else:
     #         print(
     #             f"Account: {account} | " +
-    #             f"Asset: {contract.symbol}@{contract.primaryExchange} | " +
+    #             f"Asset: {contract.symbol}@{contract.exchange} | " +
     #             f"Position: {position} | "
     #         )
 
@@ -401,7 +401,7 @@ if __name__ == "__main__":
     # contract.symbol = "SPY"
     # contract.secType = "STK"
     # contract.exchange = "SMART"
-    # # contract.primaryExchange = "ARCA"
+    # # contract.exchange = "ARCA"
     # contract.currency = "USD"
 
     # paper = True
@@ -410,7 +410,7 @@ if __name__ == "__main__":
     port = 7497
 
     tApp = IBAPI('127.0.0.1', port, 0)
-    timePassed = 0
+    timePassed = 0.
     while not(tApp.isConnected()):
         time.sleep(0.1)
         timePassed += 0.1

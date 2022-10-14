@@ -1,6 +1,6 @@
 
 from __future__ import annotations
-from typing import Dict, TYPE_CHECKING
+from typing import Dict, TYPE_CHECKING, List
 from ibapi.order import Order
 from ibapi.order_state import OrderState
 from ibapi.execution import Execution
@@ -34,10 +34,10 @@ class ApiController:
     def __init__(self, msgHandler: RobotClient = None, time_zone=ClockController.time_zone):
         self.msgHandler = msgHandler
         self.default_tz = pytz.timezone(time_zone)
-        self._acc_info = dict()
+        # self._acc_info = dict()
 
         if msgHandler is None:
-            self.resolved_contract = []
+            self.resolved_contract: List[Contract] = []
             self.contractDetailsIsObtained = False
 
     @iswrapper
@@ -78,7 +78,7 @@ class ApiController:
         else:
             print(
                 f"Account: {accountName} | " +
-                f"Asset: {contract.symbol}@{contract.primaryExchange} | " +
+                f"Asset: {contract.symbol}@{contract.exchange} | " +
                 f"Position: {position} | " +
                 f"MarketPrice: {marketPrice} | " +
                 f"MarketValue: {marketValue} | " +
@@ -345,8 +345,8 @@ class ApiSocket:
                     amount_filled = min(order.totalQuantity, row["volume"]//5)
             return bar_date, amount_filled
 
-        total_filled = dict()
-        status = dict()
+        total_filled: Dict[int, int] = dict()
+        status: Dict[int, str] = dict()
         wait_until(
             condition_function=lambda: ClockController.utcnow() > timeStart,
             seconds_to_wait=5,
@@ -503,6 +503,7 @@ class ApiSocket:
         if contract.secType == "STK":
             contractDetails = ContractDetails()
             contractDetails.contract = copy.deepcopy(contract)
+            contractDetails.contract.exchange = contractDetails.contract.primaryExchange
             self.wrapper.contractDetails(reqId, contractDetails)
             self.wrapper.contractDetailsEnd(reqId)
 
@@ -512,13 +513,14 @@ class ApiSocket:
             query = query.replace("v.timeRangeStart", str(ClockController.utcnow().shift(days=-2).int_timestamp)) \
                 .replace("v.timeRangeStop", str(ClockController.utcnow().int_timestamp)) \
                 .replace("v.windowPeriod", "30s") \
-                .replace("v.exchange", contract.exchange) \
+                .replace("v.exchange", contract.primaryExchange) \
                 .replace("v.symbol", contract.symbol)
 
             tables = self.query_api.query(query, org=self.org)
             for table in tables:
                 contractDetails = ContractDetails()
                 contractDetails.contract = copy.deepcopy(contract)
+                contractDetails.contract.exchange = contractDetails.contract.primaryExchange
                 contractDetails.contract.lastTradeDateOrContractMonth = table.records[
                     0]["contract"]
                 self.wrapper.contractDetails(reqId, contractDetails)
@@ -734,16 +736,17 @@ class INFLUX(ApiController, ApiSocket):
         msgHandler must >>
             define funcs: updateAccountData, updatePositionData, updateAccountData
         """
-        if subscribe:
-            self._account_updates = True
-            thread: Thread = getattr(self, f"_thread_accUpd", None)
-            if thread is None or not thread.is_alive():
-                thread = Thread(target=super().reqAccountUpdates,
-                                args=())
-                thread.start()
-                setattr(self, f"_thread_accUpd", thread) # overwrite previous thread
-        elif not subscribe:
-            self._account_updates = False            
+        # if subscribe:
+        #     self._account_updates = True
+        #     thread: Thread = getattr(self, f"_thread_accUpd", None)
+        #     if thread is None or not thread.is_alive():
+        #         thread = Thread(target=super().reqAccountUpdates,
+        #                         args=())
+        #         thread.start()
+        #         setattr(self, f"_thread_accUpd", thread) # overwrite previous thread
+        # elif not subscribe:
+        #     self._account_updates = False            
+        pass
 
     @iswrapper
     def reqPositions(self):

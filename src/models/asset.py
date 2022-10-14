@@ -2,7 +2,7 @@
 from __future__ import annotations
 from msilib.schema import Error
 from threading import Lock
-from typing import Dict, TYPE_CHECKING
+from typing import Dict, TYPE_CHECKING, List, Set, Tuple
 
 import time
 import arrow
@@ -24,7 +24,7 @@ from models.signal import Signal
 
 class Asset(Contract):
 
-    def __init__(self, symbol: str, exchange: str, secType: str, client: RobotClient):
+    def __init__(self, symbol: str, exchange: str, secType: str, client: RobotClient, num_agents: int = 1):
         '''
         a wrapper/collection to store all Signals related to one Contract
             secType is either 'FUT' or 'STK'
@@ -39,7 +39,7 @@ class Asset(Contract):
 
         self.contract = Contract()
         self.contract.symbol = symbol
-        self.contract.exchange = exchange
+        self.contract.primaryExchange = exchange
         self.contract.currency = 'USD'
         self.contract.secType = secType
 
@@ -47,14 +47,15 @@ class Asset(Contract):
         self.maintMargin = 0
         self.commission = 0
 
-        # TODO: separate data by agent
-        self.openOrders = dict()
-        self.openOrdersStatus = dict()
-        self.position_mutex = Lock()
-        self.openOrderQty = dict()
-        self.filledOrders = set()
-        self.positionLogs = list()
-        self.position = 0
+        self.num_agents = num_agents
+        self.order_agent_map: Dict[int, int] = dict()
+        self.openOrders: Dict[int, Dict[int, Order]] = { n: dict() for n in range(num_agents) }
+        self.openOrdersStatus: Dict[int, Dict[int, str]] = { n: dict() for n in range(num_agents) }
+        self.position_mutex = { n: Lock() for n in range(num_agents) }
+        self.openOrderQty: Dict[int, Dict[int, int]] = { n: dict() for n in range(num_agents) }
+        self.filledOrders: Dict[int, Set[int]] = { n: set() for n in range(num_agents) }
+        self.positionLogs: Dict[int, List[Tuple[int, float]]] = { n: list() for n in range(num_agents) }
+        self.position = { n: 0 for n in range(num_agents) }
 
         if not self.client.client_connected():
             self.client.connect_client()
@@ -91,14 +92,16 @@ class Asset(Contract):
         self.asset_key = f"{symbol}@{exchange}"
 
     def cleanUpOrder(self, orderId, cancel = False):
-        if not (self.openOrderQty.get(orderId, 1) == 0 or cancel):
+        agentId = self.order_agent_map.get(orderId, None)
+        if agentId is None or not (self.openOrderQty[agentId].get(orderId, 1) == 0 or cancel):
             return
-        if orderId in self.openOrderQty:
+        if orderId in self.openOrderQty[agentId]:
             if not cancel:
-                self.filledOrders.add(orderId)
-            self.openOrders.pop(orderId)
-            self.openOrdersStatus.pop(orderId)
-            self.openOrderQty.pop(orderId)
+                self.filledOrders[agentId].add(orderId)
+            self.openOrders[agentId].pop(orderId)
+            self.openOrdersStatus[agentId].pop(orderId)
+            self.openOrderQty[agentId].pop(orderId)
+            self.order_agent_map.pop(orderId)
             self.client.order_asset_map.pop(orderId)
 
     def update_order_rules(self):
@@ -114,9 +117,10 @@ class Asset(Contract):
             check_order_impact.transmit = True
             check_order_impact.whatIf = True
             #####
-            self.openOrders[orderId] = check_order_impact
-            self.openOrdersStatus[orderId] = 'PendingSubmit' # TODO: Enum state
+            self.openOrders[0][orderId] = check_order_impact
+            self.openOrdersStatus[0][orderId] = 'PendingSubmit' # TODO: Enum state
             self.updateOrderRulesObtained = False
+            self.order_agent_map[orderId] = 0
             self.client.client_adapter.placeOrder(orderId, self.contract, check_order_impact)
             wait_until(
                 condition_function=lambda: self.updateOrderRulesObtained,
@@ -124,8 +128,8 @@ class Asset(Contract):
                 msg=f"Waited more than 5 secs to update order rules: {orderId}"
             )
         self.order_mutex.release()
-        self.openOrders.pop(orderId)
-        self.openOrdersStatus.pop(orderId)
+        self.openOrders[0].pop(orderId)
+        self.openOrdersStatus[0].pop(orderId)
 
     def subscribe_bar_signal(self, bar_size: BarSize, length):
         if not self.client.client_connected():
@@ -143,11 +147,11 @@ class Asset(Contract):
         wait_until(
             condition_function=lambda: self.client.resolvedHistoricalBarData[reqId],
             seconds_to_wait=15,
-            msg=f"Waited more than 15 secs to get {bar_size.value} bars for: {self.contract.symbol}@{self.contract.exchange}"
+            msg=f"Waited more than 15 secs to get {bar_size.value} bars for: {self.contract.symbol}@{self.contract.primaryExchange}"
         )
         # except:
         #     self.unsubscribe_bar_signal(reqId)
-        #     raise RuntimeError(f"Could not subscribe {bar_size.value} bars for: {self.contract.symbol}@{self.contract.exchange}")
+        #     raise RuntimeError(f"Could not subscribe {bar_size.value} bars for: {self.contract.symbol}@{self.contract.primaryExchange}")
         # finally:
         self.client.resolvedHistoricalBarData.pop(reqId)
 
@@ -187,37 +191,35 @@ class Asset(Contract):
             ])
 
     def get_order_sign(self, orderId):
-        if self.openOrders[orderId].action == 'SELL':
+        agentId = self.order_agent_map[orderId]
+        if self.openOrders[agentId][orderId].action == 'SELL':
             return -1
-        elif self.openOrders[orderId].action == 'BUY':
+        elif self.openOrders[agentId][orderId].action == 'BUY':
             return 1
         else:
             return 0
 
-    @property
-    def openShortQty(self):
-        self.position_mutex.acquire()
-        qty = -sum(qty for qty in self.openOrderQty.values() if qty < 0)
-        self.position_mutex.release()
-        return qty
-        
-    @property
-    def openLongQty(self):
-        self.position_mutex.acquire()
-        qty = sum(qty for qty in self.openOrderQty.values() if qty > 0)
-        self.position_mutex.release()
-        return qty
+    def openShortQty(self, agentId = 0):
+        self.position_mutex[agentId].acquire()
+        qty = -sum(qty for qty in self.openOrderQty[agentId].values() if qty < 0)
+        self.position_mutex[agentId].release()
+        return int(qty)
+
+    def openLongQty(self, agentId = 0):
+        self.position_mutex[agentId].acquire()
+        qty = sum(qty for qty in self.openOrderQty[agentId].values() if qty > 0)
+        self.position_mutex[agentId].release()
+        return int(qty)
+
+    def getPnL(self, agentId = 0):
+        curr_price = self.getCurrPrice
+        pnl = 0
+        for pos, price in self.positionLogs[agentId].copy():
+            pnl += (curr_price - price)*pos*50 - self.commission*abs(pos)
+        return pnl
 
     @property
     def getCurrPrice(self):
         if len(self.signals) == 0:
             raise AttributeError(f"ERROR    Cannot get current price of {self.asset_key} without subscribing to at least 1 signal.")
         return self.signals[list(self.signals.keys())[0]].data[-1][4]
-
-    @property
-    def getPnL(self):
-        curr_price = self.getCurrPrice
-        pnl = 0
-        for pos, price in self.positionLogs.copy():
-            pnl += (curr_price - price)*pos*50 - self.commission*abs(pos)
-        return pnl

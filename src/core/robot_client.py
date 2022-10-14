@@ -8,8 +8,7 @@ import time
 import datetime
 from ibapi.contract import Contract
 from ibapi.order import Order
-import pytz
-from typing import Dict
+from typing import Dict, List
 import arrow
 # import random
 
@@ -50,9 +49,9 @@ class RobotClient:
         self.resolvedHistoricalBarData = dict()
 
         self.assetCache: Dict[str, Asset] = dict()
-        self.request_signal_map = dict()
-        self.order_asset_map = dict()
-        self.buffered_positions = dict()
+        self.request_signal_map: Dict[int, str] = dict()
+        self.order_asset_map: Dict[int, str] = dict()
+        self.buffered_positions: Dict[str, int] = dict()
 
         if connect:
             self.connect_client()
@@ -111,10 +110,10 @@ class RobotClient:
             self.reqIds.remove(reqId)
         self.reqIds_mutex.release()
 
-    def subscribe_asset(self, symbol, exchange, secType):
+    def subscribe_asset(self, symbol, exchange, secType, num_agents = 0):
         asset_key = f"{symbol}@{exchange}"
         self.assetCache[asset_key] = Asset(
-            symbol=symbol, exchange=exchange, secType=secType, client=self)
+            symbol=symbol, exchange=exchange, secType=secType, client=self, num_agents=num_agents)
         self.assetCache[asset_key].update_order_rules()
         if asset_key in self.buffered_positions:
             contract = Contract()
@@ -127,9 +126,10 @@ class RobotClient:
         asset_key = f"{symbol}@{exchange}"
         for reqId in list(self.assetCache[asset_key].signals.keys()):
             self.unsubscribe_bar_signal(reqId)
-        for orderId in list(self.assetCache[asset_key].openOrders.keys()):
-            self.cancelOrder(orderId)
-        self.buffered_positions[asset_key] = self.assetCache[asset_key].position
+        for agentId in range(self.assetCache[asset_key].num_agents):
+            for orderId in list(self.assetCache[asset_key].openOrders[agentId].keys()):
+                self.cancelOrder(orderId)
+        self.buffered_positions[asset_key] = self.assetCache[asset_key].position[0] # only important for IB with single account
         self.assetCache.pop(asset_key)
         return asset_key
 
@@ -142,7 +142,7 @@ class RobotClient:
         self.assetCache[self.request_signal_map[reqId]
                         ].unsubscribe_bar_signal(reqId)
 
-    def placeOrder(self, asset_key, action, quantity, price):
+    def placeOrder(self, asset_key, action, quantity, price, agentId = 0):
         if self.assetCache[asset_key].order_mutex.acquire():
             orderId = self.get_new_orderId()
             #####
@@ -155,11 +155,12 @@ class RobotClient:
             order.transmit = True
             #####
             self.order_asset_map[orderId] = asset_key
-            self.assetCache[asset_key].openOrders[orderId] = order
-            self.assetCache[asset_key].openOrdersStatus[orderId] = 'PendingSubmit' # TODO: Enum state
+            self.assetCache[asset_key].order_agent_map[orderId] = agentId
+            self.assetCache[asset_key].openOrders[agentId][orderId] = order
+            self.assetCache[asset_key].openOrdersStatus[agentId][orderId] = 'PendingSubmit' # TODO: Enum state
             self.client_adapter.placeOrder(orderId, self.assetCache[asset_key].contract, order)
             wait_until(
-                condition_function=lambda: self.assetCache[asset_key].openOrdersStatus.get(orderId, "Filled") in ['PreSubmitted','Submitted','Cancelled','Filled'],
+                condition_function=lambda: self.assetCache[asset_key].openOrdersStatus[agentId].get(orderId, "Filled") in ['PreSubmitted','Submitted','Cancelled','Filled'],
                 seconds_to_wait=5,
                 msg=f"Waited more than 5 secs to submit order: {orderId}"
             )
@@ -169,30 +170,32 @@ class RobotClient:
 
     def cancelOrder(self, orderId):
         asset_key = self.order_asset_map[orderId]
+        agentId = self.assetCache[asset_key].order_agent_map[orderId]
         if self.assetCache[asset_key].order_mutex.acquire():
-            self.assetCache[asset_key].openOrdersStatus[orderId] = 'PendingCancel' # TODO: Enum state
+            self.assetCache[asset_key].openOrdersStatus[agentId][orderId] = 'PendingCancel' # TODO: Enum state
             self.client_adapter.cancelOrder(orderId)
             wait_until(
-                condition_function=lambda: self.assetCache[asset_key].openOrdersStatus.get(orderId, "Filled") in ['Cancelled','Filled'],
+                condition_function=lambda: self.assetCache[asset_key].openOrdersStatus[agentId].get(orderId, "Filled") in ['Cancelled','Filled'],
                 seconds_to_wait=5,
                 msg=f"Waited more than 5 secs to cancel order: {orderId}"
             )
             self.assetCache[asset_key].cleanUpOrder(orderId, cancel=True)
         self.assetCache[asset_key].order_mutex.release()
-        return orderId not in self.assetCache[asset_key].filledOrders
+        return orderId not in self.assetCache[asset_key].filledOrders[agentId]
 
     def updateOrder(self, orderId, quantity = None, price = None):
         if quantity is None and price is None:
             return # Do Nothing
         asset_key = self.order_asset_map[orderId]
-        action = self.assetCache[asset_key].openOrders[orderId].action
+        agentId = self.assetCache[asset_key].order_agent_map[orderId]
+        action = self.assetCache[asset_key].openOrders[agentId][orderId].action
         if quantity is None:
-            quantity = abs(self.assetCache[asset_key].openOrderQty[orderId])
+            quantity = abs(self.assetCache[asset_key].openOrderQty[agentId][orderId])
         if price is None:
-            price = self.assetCache[asset_key].openOrders[orderId].lmtPrice
+            price = self.assetCache[asset_key].openOrders[agentId][orderId].lmtPrice
 
         if self.cancelOrder(orderId):
-            return self.placeOrder(asset_key, action, quantity, price)
+            return self.placeOrder(asset_key, action, quantity, price, agentId)
         else:
             return orderId
     
@@ -205,12 +208,13 @@ class RobotClient:
             pass
 
     def updatePositionData(self, contract, position):
-        asset_key = f"{contract.symbol}@{contract.primaryExchange}"
+        asset_key = f"{contract.symbol}@{contract.exchange}"
+        agentId = 0 # only support for IB adapter single agent
         if asset_key in self.assetCache:
-            if self.assetCache[asset_key].position_mutex.acquire():
+            if self.assetCache[asset_key].position_mutex[agentId].acquire():
                 if asset_key in self.assetCache:
-                    self.assetCache[asset_key].position = position
-            self.assetCache[asset_key].position_mutex.release()
+                    self.assetCache[asset_key].position[agentId] = position
+            self.assetCache[asset_key].position_mutex[agentId].release()
         else:
             self.buffered_positions[asset_key] = position
 
@@ -220,63 +224,67 @@ class RobotClient:
 
     def handleOpenOrder(self, orderId, contract, order, orderState):
         asset_key = f"{contract.symbol}@{contract.exchange}"
-        if not (asset_key in self.assetCache and orderId in self.assetCache[asset_key].openOrders):
+        agentId = self.assetCache[asset_key].order_agent_map.get(orderId, None)
+        if agentId is None or not (asset_key in self.assetCache and orderId in self.assetCache[asset_key].openOrders[agentId]):
             return
-        if self.assetCache[asset_key].position_mutex.acquire():
-            if orderId not in self.assetCache[asset_key].openOrders:
-                self.assetCache[asset_key].position_mutex.release()
+        if self.assetCache[asset_key].position_mutex[agentId].acquire():
+            if orderId not in self.assetCache[asset_key].openOrders[agentId]:
+                self.assetCache[asset_key].position_mutex[agentId].release()
                 return
-            self.assetCache[asset_key].openOrders[orderId] = order
-            self.assetCache[asset_key].openOrdersStatus[orderId] = orderState.status
+            self.assetCache[asset_key].openOrders[agentId][orderId] = order
+            self.assetCache[asset_key].openOrdersStatus[agentId][orderId] = orderState.status
             if not self.assetCache[asset_key].updateOrderRulesObtained:
                 self.assetCache[asset_key].initMargin = float(orderState.initMarginChange)
                 self.assetCache[asset_key].maintMargin = float(orderState.maintMarginChange)
                 self.assetCache[asset_key].commission = orderState.commission
                 self.assetCache[asset_key].updateOrderRulesObtained = True
-        self.assetCache[asset_key].position_mutex.release()
+        self.assetCache[asset_key].position_mutex[agentId].release()
     
     def handleOrderStatus(self, orderId, status, filled, remaining, avgFillPrice):
         asset_key = self.order_asset_map.get(orderId, None)
         if asset_key is None:
             return
-        if self.assetCache[asset_key].position_mutex.acquire():
-            if orderId not in self.assetCache[asset_key].openOrders:
-                self.assetCache[asset_key].position_mutex.release()
+        agentId = self.assetCache[asset_key].order_agent_map[orderId]
+        if self.assetCache[asset_key].position_mutex[agentId].acquire():
+            if orderId not in self.assetCache[asset_key].openOrders[agentId]:
+                self.assetCache[asset_key].position_mutex[agentId].release()
                 return
-            self.assetCache[asset_key].openOrdersStatus[orderId] = status
-            self.assetCache[asset_key].openOrderQty[orderId] = remaining * self.assetCache[asset_key].get_order_sign(orderId)
+            self.assetCache[asset_key].openOrdersStatus[agentId][orderId] = status
+            self.assetCache[asset_key].openOrderQty[agentId][orderId] = remaining * self.assetCache[asset_key].get_order_sign(orderId)
             self.assetCache[asset_key].cleanUpOrder(orderId)
-        self.assetCache[asset_key].position_mutex.release()
+        self.assetCache[asset_key].position_mutex[agentId].release()
 
     def handleOrderExecution(self, execution):
         orderId = execution.orderId
         asset_key = self.order_asset_map.get(orderId, None)
         if asset_key is None:
             return
-        if self.assetCache[asset_key].position_mutex.acquire():
-            if orderId not in self.assetCache[asset_key].openOrders:
-                self.assetCache[asset_key].position_mutex.release()
+        agentId = self.assetCache[asset_key].order_agent_map[orderId]
+        if self.assetCache[asset_key].position_mutex[agentId].acquire():
+            if orderId not in self.assetCache[asset_key].openOrders[agentId]:
+                self.assetCache[asset_key].position_mutex[agentId].release()
                 return
             qty = execution.shares
             cumQty = execution.cumQty
             price = execution.avgPrice
             mult = self.assetCache[asset_key].get_order_sign(orderId)
 
-            self.assetCache[asset_key].position += qty*mult
-            self.assetCache[asset_key].openOrderQty[orderId] = (self.assetCache[asset_key].openOrders[orderId].totalQuantity - cumQty)*mult
+            self.assetCache[asset_key].position[agentId] += qty*mult
+            self.assetCache[asset_key].openOrderQty[agentId][orderId] = (self.assetCache[asset_key].openOrders[agentId][orderId].totalQuantity - cumQty)*mult
             self.assetCache[asset_key].cleanUpOrder(orderId)
-            self.assetCache[asset_key].positionLogs.append((qty*mult, price))
-        self.assetCache[asset_key].position_mutex.release()
+            self.assetCache[asset_key].positionLogs[agentId].append((qty*mult, price))
+        self.assetCache[asset_key].position_mutex[agentId].release()
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
     import numpy as np
 
-    ClockController.set_utcnow(arrow.get(datetime.datetime(
-        2020, 7, 13, 9, 30, 0), ClockController.time_zone))
-    # robot_client = RobotClient(cliendId=0, live=False)
-    robot_client = RobotClient(cliendId=0, simulator="influx")
-    es_key = robot_client.subscribe_asset('ES', 'GLOBEX', 'FUT')
+    # ClockController.set_utcnow(arrow.get(datetime.datetime(
+    #     2020, 7, 15, 9, 30, 0), ClockController.time_zone))
+    robot_client = RobotClient(cliendId=0, live=False)
+    # robot_client = RobotClient(cliendId=0, simulator="influx")
+    num_agents = 2
+    es_key = robot_client.subscribe_asset('ES', 'GLOBEX', 'FUT', num_agents)
     # es_key = robot_client.subscribe_asset('SPY', 'SMART', 'STK')
 
     # from resources.ibapi_orders import Orders
@@ -306,10 +314,13 @@ if __name__ == "__main__":
 
     real_ts = arrow.utcnow()
     sim_ts = ClockController.utcnow()
-    eod_ts = arrow.get(datetime.datetime(2020, 7, 13, 16, 00, 0), ClockController.time_zone)
-    logPnL = []
-    closePrice = []
-    stdPrice = []
+    # eod_ts = arrow.get(datetime.datetime(2020, 7, 15, 16, 00, 0), ClockController.time_zone)
+    eod_ts = ClockController.utcnow().replace(hour=16, minute=0, second=0)
+    buyId  = dict()
+    sellId = dict()
+    logPnL: Dict[int, List[float]] = { n: [] for n in range(num_agents) }
+    closePrice: Dict[int, List[float]] = { n: [] for n in range(num_agents) }
+    stdPrice: Dict[int, List[float]] = { n: [] for n in range(num_agents) }
 
     while ClockController.utcnow() < eod_ts:
         data1 = robot_client.assetCache[es_key].signals[reqId1].get_numpy()
@@ -320,41 +331,53 @@ if __name__ == "__main__":
         # data5 = robot_client.assetCache[es_key].signals[reqId5].get_numpy()
 
         # print(f"Pending OrderIds:")
-        # for orderId, order in robot_client.assetCache[es_key].openOrders.items():
-        #     print(f"OrderId: {order.orderId} | Status: {robot_client.assetCache[es_key].openOrdersStatus[orderId]}")
-        high_price = (data1[-10:, 2] - data1[-10:, 7]).max()-0.25
-        low_price = (data1[-10:, 3] - data1[-10:, 7]).min()+0.25
-        weights = np.exp(-np.arange(9)/20)
-        trend = (np.diff(data1[-10:, 7], n=1) * weights).sum() / weights.sum() + data1[-1, 7]
-        high_price = round(4*(high_price + trend))/4
-        low_price = round(4*(low_price + trend))/4
+        # for orderId, order in robot_client.assetCache[es_key].openOrders[agentId].items():
+        #     print(f"OrderId: {order.orderId} | Status: {robot_client.assetCache[es_key].openOrdersStatus[agentId][orderId]}")
+
+        # high_price = (data1[-10:, 2] - data1[-10:, 7]).max()-0.25
+        # low_price = (data1[-10:, 3] - data1[-10:, 7]).min()+0.25
+        # weights = np.exp(-np.arange(9)/20)
+        # trend = (np.diff(data1[-10:, 7], n=1) * weights).sum() / weights.sum() + data1[-1, 7]
+        # high_price = round(4*(high_price + trend))/4
+        # low_price = round(4*(low_price + trend))/4
 
         if ClockController.utcnow().int_timestamp % 50 == 0:
-            print(
-                f"Open [Long: {robot_client.assetCache[es_key].openLongQty:2d} | " +
-                f"Short: {robot_client.assetCache[es_key].openShortQty:2d}] | " +
-                f"Position: {robot_client.assetCache[es_key].position:=+3d} | " +
-                f"RealizedPnL: {float(robot_client.assetCache[es_key].getPnL):=+9.2f} | " +
-                # f"PnL: {float(robot_client.account_info['RealizedPnL']) + float(robot_client.account_info['UnrealizedPnL'])}"
-                f"Elapsed Time [Real: {(arrow.utcnow() - real_ts).seconds} s | Simulated: {(ClockController.utcnow() - sim_ts).seconds} s]"
-            )
-            logPnL += [robot_client.assetCache[es_key].getPnL]
-            closePrice += [data1[-1, 4]]
-            stdPrice += [data1[:, 4].std()]
+            for agentId in range(num_agents):
+                print(
+                    f"Agent: {agentId} || " +
+                    f"Open [Long: {robot_client.assetCache[es_key].openLongQty(agentId):2d} | " +
+                    f"Short: {robot_client.assetCache[es_key].openShortQty(agentId):2d}] | " +
+                    f"Position: {robot_client.assetCache[es_key].position[agentId]:=+3d} | " +
+                    f"RealizedPnL: {float(robot_client.assetCache[es_key].getPnL(agentId)):=+9.2f} | " +
+                    # f"PnL: {float(robot_client.account_info['RealizedPnL']) + float(robot_client.account_info['UnrealizedPnL'])}"
+                    f"Elapsed Time [Real: {(arrow.utcnow() - real_ts).seconds} s | Simulated: {(ClockController.utcnow() - sim_ts).seconds} s]"
+                )
+                logPnL[agentId] += [robot_client.assetCache[es_key].getPnL(agentId)]
+                closePrice[agentId] += [data1[-1, 4]]
+                stdPrice[agentId] += [data1[:, 4].std()]
 
-        # 2: high; 3: low
-        high_price = round(4*(data1[-5:, 2].mean() + data1[-5:, 2].std()))/4
-        low_price = round(4*(data1[-5:, 3].mean() - data1[-5:, 3].std()))/4
+        for agentId in range(num_agents):
+            
+            if agentId > 0:
+                high_price = round(4*(data1[-5:, 2].mean() + (1 + agentId/num_agents)*data1[-5:, 2].std()))/4
+                low_price = round(4*(data1[-5:, 3].mean() - (1 + agentId/num_agents)*data1[-5:, 3].std()))/4
+            else:
+                high_price = (data1[-10:, 2] - data1[-10:, 7]).max()-0.25
+                low_price = (data1[-10:, 3] - data1[-10:, 7]).min()+0.25
+                weights = np.exp(-np.arange(9)/20)
+                trend = (np.diff(data1[-10:, 7], n=1) * weights).sum() / weights.sum() + data1[-1, 7]
+                high_price = round(4*(high_price + trend))/4
+                low_price = round(4*(low_price + trend))/4
 
-        if robot_client.assetCache[es_key].openLongQty == 0 and robot_client.assetCache[es_key].position < 1:
-            buyId = robot_client.placeOrder(es_key, 'BUY', 1, low_price)
-        elif robot_client.assetCache[es_key].openLongQty > 0 and buyId in robot_client.assetCache[es_key].openOrders and abs(robot_client.assetCache[es_key].openOrders[buyId].lmtPrice - low_price) > 0.25:
-            buyId = robot_client.updateOrder(buyId, price=low_price)
+            if robot_client.assetCache[es_key].openLongQty(agentId) == 0 and robot_client.assetCache[es_key].position[agentId] < 1:
+                buyId[agentId] = robot_client.placeOrder(es_key, 'BUY', 1, low_price, agentId)
+            elif robot_client.assetCache[es_key].openLongQty(agentId) > 0 and buyId[agentId] in robot_client.assetCache[es_key].openOrders[agentId] and abs(robot_client.assetCache[es_key].openOrders[agentId][buyId[agentId]].lmtPrice - low_price) > 0.25:
+                buyId[agentId] = robot_client.updateOrder(buyId[agentId], price=low_price)
 
-        if robot_client.assetCache[es_key].openShortQty == 0 and robot_client.assetCache[es_key].position > -1:
-            sellId = robot_client.placeOrder(es_key, 'SELL', 1, high_price)
-        elif robot_client.assetCache[es_key].openShortQty > 0 and sellId in robot_client.assetCache[es_key].openOrders and abs(robot_client.assetCache[es_key].openOrders[sellId].lmtPrice - high_price) > 0.25:
-            sellId = robot_client.updateOrder(sellId, price=high_price)
+            if robot_client.assetCache[es_key].openShortQty(agentId) == 0 and robot_client.assetCache[es_key].position[agentId] > -1:
+                sellId[agentId] = robot_client.placeOrder(es_key, 'SELL', 1, high_price, agentId)
+            elif robot_client.assetCache[es_key].openShortQty(agentId) > 0 and sellId[agentId] in robot_client.assetCache[es_key].openOrders[agentId] and abs(robot_client.assetCache[es_key].openOrders[agentId][sellId[agentId]].lmtPrice - high_price) > 0.25:
+                sellId[agentId] = robot_client.updateOrder(sellId[agentId], price=high_price)
 
         # ax1.clear()
         # ax2.clear()
@@ -377,16 +400,19 @@ if __name__ == "__main__":
         # ax4.plot(data4[:, 0], data4[:, 7])
         # ax4.plot(data4[-1, 0], data4[-1, 4], marker='o')
 
-        ClockController.increment_utcnow(1)
-        time.sleep(0.025)
+        # ClockController.increment_utcnow(1)
+        # time.sleep(0.025)
+        time.sleep(1.)
         # plt.pause(0.05)
     # plt.show()
 
     robot_client.disconnect_client()
     time.sleep(1)
-    allData = np.array([logPnL, closePrice, stdPrice]).T
-    allDataNorm = (allData - allData.mean(0))/allData.std(0)
-    allDataCorr = allDataNorm.T @ allDataNorm / allDataNorm.shape[0]
-    print(allDataCorr)
+    for n in range(num_agents):
+        allData = np.array([logPnL[n], closePrice[n], stdPrice[n]]).T
+        allDataNorm = (allData - allData.mean(0))/allData.std(0)
+        allDataCorr = allDataNorm.T @ allDataNorm / allDataNorm.shape[0]
+        print(f"CorrMat for Agent {n}")
+        print(allDataCorr)
 
     print("Done")

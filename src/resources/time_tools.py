@@ -5,7 +5,7 @@ import arrow
 
 class ClockController:
     time_zone = "US/Eastern"
-    _simulated_time: arrow.Arrow = None
+    _simulated_time: arrow.Arrow = arrow.utcnow()
 
     @staticmethod
     def set_utcnow(simulated_time: arrow.Arrow):

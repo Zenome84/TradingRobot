@@ -1,4 +1,6 @@
 
+from enum import auto
+from threading import Lock
 from ibapi.order import OrderComboLeg, Order
 from ibapi.common import *
 from ibapi.tag_value import TagValue
@@ -7,6 +9,19 @@ from ibapi.order_condition import *
 
 
 class Orders:
+    @staticmethod
+    def LimitOrder(orderId: int, action: str, quantity: float, limitPrice: float):
+        order = Order()
+        order.orderId = orderId
+        order.action = action
+        order.orderType = "LMT"
+        order.totalQuantity = quantity
+        order.lmtPrice = limitPrice
+        order.transmit = True
+        # order.whatIf = True
+
+        return order
+
     @staticmethod
     def BracketOrder(parentOrderId:int, action:str, quantity:float, 
                      limitPrice:float, takeProfitLimitPrice:float, 

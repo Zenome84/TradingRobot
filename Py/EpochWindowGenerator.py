@@ -6,10 +6,10 @@ from msilib.schema import Error
 import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow as tf
-import tensorflow.keras as krs
 import scipy.stats as st
 import tensorflow_transform as tft
 
+from importlib import import_module
 
 class EpochWindowGenerator():
     def __init__(self, data, input_len, label_len, shift, train_cut, validate_cut, batch_size):
@@ -92,7 +92,7 @@ class EpochWindowGenerator():
 
     def make_dataset(self, data, prev_data=None):
         data = np.array(data, dtype=np.float32)
-        ds = krs.utils.timeseries_dataset_from_array(
+        ds = tf.keras.utils.timeseries_dataset_from_array(
                 data=data,
                 targets=None,
                 sequence_length=self.total_window_size,

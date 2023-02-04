@@ -21,7 +21,7 @@ from resources.time_tools import wait_until, ClockController
 from models.signal import Signal
 
 
-class Asset(Contract):
+class Asset:
 
     def __init__(self, symbol: str, exchange: str, secType: str, client: RobotClient, num_agents: int = 1):
         '''
@@ -164,19 +164,6 @@ class Asset(Contract):
 
     def updateBarData(self, reqId, bar):
         if reqId in self.signals:
-            # if not (4000 <= bar.average <= 5000):
-            #     print(
-            #         f"Bad Average:: " +
-            #         f"TS: {arrow.get(bar.date + ' ' + str(self.client.client_adapter.default_tz), 'YYYYMMDD  HH:mm:ss ZZZ')} | " +
-            #         f"Open: {bar.open} | " +
-            #         f"High: {bar.high} | " +
-            #         f"Low: {bar.low} | " +
-            #         f"Close: {bar.close} | " +
-            #         f"Volume: {bar.volume} | " +
-            #         f"Count: {bar.barCount} | " +
-            #         f"VWAP: {bar.average}"
-            #     )
-
             self.signals[reqId].updateData([
                 arrow.get(bar.date + " " + ClockController.time_zone,
                         "YYYYMMDD  HH:mm:ss ZZZ").int_timestamp,

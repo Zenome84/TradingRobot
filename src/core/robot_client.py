@@ -278,11 +278,14 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     import numpy as np
 
-    # ClockController.set_utcnow(arrow.get(datetime.datetime(
-    #     2020, 7, 15, 9, 30, 0), ClockController.time_zone))
-    robot_client = RobotClient(cliendId=0, live=False)
-    # robot_client = RobotClient(cliendId=0, simulator="influx")
-    num_agents = 2
+    ClockController.set_utcnow(arrow.get(datetime.datetime(
+        2020, 7, 27, 9, 30
+        , 0), ClockController.time_zone))
+    eod_ts = arrow.get(datetime.datetime(
+        2020, 7, 27, 16, 00, 0), ClockController.time_zone)
+    # robot_client = RobotClient(cliendId=0, live=False)
+    robot_client = RobotClient(cliendId=0, simulator="influx")
+    num_agents = 5
     es_key = robot_client.subscribe_asset('ES', 'GLOBEX', 'FUT', num_agents)
     # es_key = robot_client.subscribe_asset('SPY', 'SMART', 'STK')
 
@@ -313,8 +316,7 @@ if __name__ == "__main__":
 
     real_ts = arrow.utcnow()
     sim_ts = ClockController.utcnow()
-    # eod_ts = arrow.get(datetime.datetime(2020, 7, 15, 16, 00, 0), ClockController.time_zone)
-    eod_ts = ClockController.utcnow().replace(hour=16, minute=0, second=0)
+    # eod_ts = ClockController.utcnow().replace(hour=16, minute=0, second=0)
     buyId  = dict()
     sellId = dict()
     logPnL: Dict[int, List[float]] = { n: [] for n in range(num_agents) }
@@ -347,26 +349,27 @@ if __name__ == "__main__":
                     f"Open [Long: {robot_client.assetCache[es_key].openLongQty(agentId):2d} | " +
                     f"Short: {robot_client.assetCache[es_key].openShortQty(agentId):2d}] | " +
                     f"Position: {robot_client.assetCache[es_key].position[agentId]:=+3d} | " +
-                    f"RealizedPnL: {float(robot_client.assetCache[es_key].getPnL(agentId)):=+9.2f} | " +
+                    f"RealizedPnL: {float(robot_client.assetCache[es_key].getPnL(agentId)):=+9.2f} | "
                     # f"PnL: {float(robot_client.account_info['RealizedPnL']) + float(robot_client.account_info['UnrealizedPnL'])}"
-                    f"Elapsed Time [Real: {(arrow.utcnow() - real_ts).seconds} s | Simulated: {(ClockController.utcnow() - sim_ts).seconds} s]"
                 )
                 logPnL[agentId] += [robot_client.assetCache[es_key].getPnL(agentId)]
                 closePrice[agentId] += [data1[-1, 4]]
                 stdPrice[agentId] += [data1[:, 4].std()]
+            print(f"------------------ Elapsed Time [Real: {(arrow.utcnow() - real_ts).seconds:4d} s | Simulated: {(ClockController.utcnow() - sim_ts).seconds:8d} s] ------------------- ")
 
         for agentId in range(num_agents):
             
-            if agentId > 0:
-                high_price = round(4*(data1[-5:, 2].mean() + (1 + agentId/num_agents)*data1[-5:, 2].std()))/4
-                low_price = round(4*(data1[-5:, 3].mean() - (1 + agentId/num_agents)*data1[-5:, 3].std()))/4
-            else:
-                high_price = (data1[-10:, 2] - data1[-10:, 7]).max()-0.25
-                low_price = (data1[-10:, 3] - data1[-10:, 7]).min()+0.25
-                weights = np.exp(-np.arange(9)/20)
-                trend = (np.diff(data1[-10:, 7], n=1) * weights).sum() / weights.sum() + data1[-1, 7]
-                high_price = round(4*(high_price + trend))/4
-                low_price = round(4*(low_price + trend))/4
+            # if agentId > 0:
+            #     high_price = round(4*(data1[-5:, 2].mean() + (1 + agentId/num_agents)*data1[-5:, 2].std()))/4
+            #     low_price = round(4*(data1[-5:, 3].mean() - (1 + agentId/num_agents)*data1[-5:, 3].std()))/4
+            # else:
+            idx = round(((agentId + 1)/num_agents*0.1 + 0.5)*data1.shape[0])
+            high_price = (data1[-idx:, 2] - data1[-idx:, 7]).max()-0.25
+            low_price = (data1[-idx:, 3] - data1[-idx:, 7]).min()+0.25
+            weights = np.exp(-np.arange(idx-1)/idx/2)
+            trend = (np.diff(data1[-idx:, 7], n=1) * weights).sum() / weights.sum() + data1[-1, 7]
+            high_price = round(4*(high_price + trend))/4
+            low_price = round(4*(low_price + trend))/4
 
             if robot_client.assetCache[es_key].openLongQty(agentId) == 0 and robot_client.assetCache[es_key].position[agentId] < 1:
                 buyId[agentId] = robot_client.placeOrder(es_key, 'BUY', 1, low_price, agentId)
@@ -399,9 +402,9 @@ if __name__ == "__main__":
         # ax4.plot(data4[:, 0], data4[:, 7])
         # ax4.plot(data4[-1, 0], data4[-1, 4], marker='o')
 
-        # ClockController.increment_utcnow(1)
-        # time.sleep(0.025)
-        time.sleep(1.)
+        ClockController.increment_utcnow(1)
+        time.sleep(0.1)
+        # time.sleep(1.)
         # plt.pause(0.05)
     # plt.show()
 
@@ -413,5 +416,8 @@ if __name__ == "__main__":
         allDataCorr = allDataNorm.T @ allDataNorm / allDataNorm.shape[0]
         print(f"CorrMat for Agent {n}")
         print(allDataCorr)
+
+    plt.plot(np.stack(list(logPnL.values())).T)
+    plt.show()
 
     print("Done")

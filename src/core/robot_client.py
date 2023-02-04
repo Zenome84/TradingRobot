@@ -109,7 +109,7 @@ class RobotClient:
             self.reqIds.remove(reqId)
         self.reqIds_mutex.release()
 
-    def subscribe_asset(self, symbol, exchange, secType, num_agents = 0):
+    def subscribe_asset(self, symbol, exchange, secType, num_agents = 1):
         asset_key = f"{symbol}@{exchange}"
         self.assetCache[asset_key] = Asset(
             symbol=symbol, exchange=exchange, secType=secType, client=self, num_agents=num_agents)
@@ -279,10 +279,10 @@ if __name__ == "__main__":
     import numpy as np
 
     ClockController.set_utcnow(arrow.get(datetime.datetime(
-        2020, 7, 27, 9, 30
+        2020, 7, 23, 9, 30
         , 0), ClockController.time_zone))
     eod_ts = arrow.get(datetime.datetime(
-        2020, 7, 27, 16, 00, 0), ClockController.time_zone)
+        2020, 7, 23, 16, 00, 0), ClockController.time_zone)
     # robot_client = RobotClient(cliendId=0, live=False)
     robot_client = RobotClient(cliendId=0, simulator="influx")
     num_agents = 5

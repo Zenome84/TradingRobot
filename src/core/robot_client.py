@@ -277,147 +277,162 @@ class RobotClient:
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
     import numpy as np
-
-    ClockController.set_utcnow(arrow.get(datetime.datetime(
-        2020, 7, 23, 9, 30
-        , 0), ClockController.time_zone))
-    eod_ts = arrow.get(datetime.datetime(
-        2020, 7, 23, 16, 00, 0), ClockController.time_zone)
+    import random
     # robot_client = RobotClient(cliendId=0, live=False)
     robot_client = RobotClient(cliendId=0, simulator="influx")
-    num_agents = 5
-    es_key = robot_client.subscribe_asset('ES', 'GLOBEX', 'FUT', num_agents)
-    # es_key = robot_client.subscribe_asset('SPY', 'SMART', 'STK')
-
-    # from resources.ibapi_orders import Orders
-    # orders = Orders.BracketOrder(10, "BUY", 1, 4579.25, 4580.5, 4578.0)
-    # for order in orders:
-    #     robot_client.client_adapter.placeOrder(order.orderId, robot_client.assetCache[es_key].contract, order)
     
-    wait_until(
-        condition_function=lambda: robot_client.assetCache[es_key].updateOrderRulesObtained,
-        seconds_to_wait=5,
-        msg=f"Waited more than 5 secs to update order rules."
+    
+    valid_days = Asset.getValidTradingDays('ES', 'GLOBEX', robot_client,
+        arrow.get(datetime.datetime(2018, 2, 1, 0, 0, 0), ClockController.time_zone),
+        arrow.get(datetime.datetime(2022, 2, 1, 0, 0, 0), ClockController.time_zone),
+        minValidActivity=500000, numLookbackDays=2
     )
-    print(f"Asset: {es_key} | Commission: {robot_client.assetCache[es_key].commission} | Initial Margin: {robot_client.assetCache[es_key].initMargin} | Maintenance Marging: {robot_client.assetCache[es_key].maintMargin}")
-    
-    reqId1 = robot_client.subscribe_bar_signal(es_key, BarSize.MIN_01, 50)
-    reqId2 = robot_client.subscribe_bar_signal(es_key, BarSize.MIN_05, 50)
-    reqId3 = robot_client.subscribe_bar_signal(es_key, BarSize.MIN_30, 50)
-    reqId4 = robot_client.subscribe_bar_signal(es_key, BarSize.HRS_01, 50)
-    
-    # reqId5 = robot_client.subscribe_bar_signal(es_key, BarSize.SEC_01, 10000)
 
-    # fig = plt.figure()
-    # ax1 = fig.add_subplot(4, 1, 1)
-    # ax2 = fig.add_subplot(4, 1, 2)
-    # ax3 = fig.add_subplot(4, 1, 3)
-    # ax4 = fig.add_subplot(4, 1, 4)
+    # valid_day = random.choice(valid_days)
+    num_agents = 5
+    allDaysData: Dict[int, Dict[arrow.Arrow, float]] = {n: {} for n in range(num_agents)}
+    for valid_day in valid_days:
+        print(f'Running Simulation for Date: {valid_day}')
+        ClockController.set_utcnow(arrow.get(datetime.datetime(
+            valid_day.year, valid_day.month, valid_day.day, 9, 30
+            , 0), ClockController.time_zone))
+        eod_ts = arrow.get(datetime.datetime(
+            valid_day.year, valid_day.month, valid_day.day, 16, 00, 0), ClockController.time_zone)
+        
+        es_key = robot_client.subscribe_asset('ES', 'GLOBEX', 'FUT', num_agents)
+        # es_key = robot_client.subscribe_asset('SPY', 'SMART', 'STK')
 
-    real_ts = arrow.utcnow()
-    sim_ts = ClockController.utcnow()
-    # eod_ts = ClockController.utcnow().replace(hour=16, minute=0, second=0)
-    buyId  = dict()
-    sellId = dict()
-    logPnL: Dict[int, List[float]] = { n: [] for n in range(num_agents) }
-    closePrice: Dict[int, List[float]] = { n: [] for n in range(num_agents) }
-    stdPrice: Dict[int, List[float]] = { n: [] for n in range(num_agents) }
+        # from resources.ibapi_orders import Orders
+        # orders = Orders.BracketOrder(10, "BUY", 1, 4579.25, 4580.5, 4578.0)
+        # for order in orders:
+        #     robot_client.client_adapter.placeOrder(order.orderId, robot_client.assetCache[es_key].contract, order)
+        
+        wait_until(
+            condition_function=lambda: robot_client.assetCache[es_key].updateOrderRulesObtained,
+            seconds_to_wait=5,
+            msg=f"Waited more than 5 secs to update order rules."
+        )
+        print(f"Asset: {es_key} | Commission: {robot_client.assetCache[es_key].commission} | Initial Margin: {robot_client.assetCache[es_key].initMargin} | Maintenance Marging: {robot_client.assetCache[es_key].maintMargin}")
+        
+        reqId1 = robot_client.subscribe_bar_signal(es_key, BarSize.MIN_01, 50)
+        reqId2 = robot_client.subscribe_bar_signal(es_key, BarSize.MIN_05, 50)
+        reqId3 = robot_client.subscribe_bar_signal(es_key, BarSize.MIN_30, 50)
+        reqId4 = robot_client.subscribe_bar_signal(es_key, BarSize.HRS_01, 50)
+        
+        # reqId5 = robot_client.subscribe_bar_signal(es_key, BarSize.SEC_01, 10000)
 
-    while ClockController.utcnow() < eod_ts:
-        data1 = robot_client.assetCache[es_key].signals[reqId1].get_numpy()
-        data2 = robot_client.assetCache[es_key].signals[reqId2].get_numpy()
-        data3 = robot_client.assetCache[es_key].signals[reqId3].get_numpy()
-        data4 = robot_client.assetCache[es_key].signals[reqId4].get_numpy()
-    
-        # data5 = robot_client.assetCache[es_key].signals[reqId5].get_numpy()
+        # fig = plt.figure()
+        # ax1 = fig.add_subplot(4, 1, 1)
+        # ax2 = fig.add_subplot(4, 1, 2)
+        # ax3 = fig.add_subplot(4, 1, 3)
+        # ax4 = fig.add_subplot(4, 1, 4)
 
-        # print(f"Pending OrderIds:")
-        # for orderId, order in robot_client.assetCache[es_key].openOrders[agentId].items():
-        #     print(f"OrderId: {order.orderId} | Status: {robot_client.assetCache[es_key].openOrdersStatus[agentId][orderId]}")
+        real_ts = arrow.utcnow()
+        sim_ts = ClockController.utcnow()
+        # eod_ts = ClockController.utcnow().replace(hour=16, minute=0, second=0)
+        buyId  = dict()
+        sellId = dict()
+        logPnL: Dict[int, List[float]] = { n: [] for n in range(num_agents) }
+        closePrice: Dict[int, List[float]] = { n: [] for n in range(num_agents) }
+        stdPrice: Dict[int, List[float]] = { n: [] for n in range(num_agents) }
 
-        # high_price = (data1[-10:, 2] - data1[-10:, 7]).max()-0.25
-        # low_price = (data1[-10:, 3] - data1[-10:, 7]).min()+0.25
-        # weights = np.exp(-np.arange(9)/20)
-        # trend = (np.diff(data1[-10:, 7], n=1) * weights).sum() / weights.sum() + data1[-1, 7]
-        # high_price = round(4*(high_price + trend))/4
-        # low_price = round(4*(low_price + trend))/4
+        while ClockController.utcnow() < eod_ts:
+            data1 = robot_client.assetCache[es_key].signals[reqId1].get_numpy()
+            data2 = robot_client.assetCache[es_key].signals[reqId2].get_numpy()
+            data3 = robot_client.assetCache[es_key].signals[reqId3].get_numpy()
+            data4 = robot_client.assetCache[es_key].signals[reqId4].get_numpy()
+        
+            # data5 = robot_client.assetCache[es_key].signals[reqId5].get_numpy()
 
-        if ClockController.utcnow().int_timestamp % 50 == 0:
+            # print(f"Pending OrderIds:")
+            # for orderId, order in robot_client.assetCache[es_key].openOrders[agentId].items():
+            #     print(f"OrderId: {order.orderId} | Status: {robot_client.assetCache[es_key].openOrdersStatus[agentId][orderId]}")
+
+            # high_price = (data1[-10:, 2] - data1[-10:, 7]).max()-0.25
+            # low_price = (data1[-10:, 3] - data1[-10:, 7]).min()+0.25
+            # weights = np.exp(-np.arange(9)/20)
+            # trend = (np.diff(data1[-10:, 7], n=1) * weights).sum() / weights.sum() + data1[-1, 7]
+            # high_price = round(4*(high_price + trend))/4
+            # low_price = round(4*(low_price + trend))/4
+
+            if ClockController.utcnow().int_timestamp % 50 == 0:
+                for agentId in range(num_agents):
+                    print(
+                        f"Agent: {agentId} || " +
+                        f"Open [Long: {robot_client.assetCache[es_key].openLongQty(agentId):2d} | " +
+                        f"Short: {robot_client.assetCache[es_key].openShortQty(agentId):2d}] | " +
+                        f"Position: {robot_client.assetCache[es_key].position[agentId]:=+3d} | " +
+                        f"RealizedPnL: {float(robot_client.assetCache[es_key].getPnL(agentId)):=+9.2f} | "
+                        # f"PnL: {float(robot_client.account_info['RealizedPnL']) + float(robot_client.account_info['UnrealizedPnL'])}"
+                    )
+                    logPnL[agentId] += [robot_client.assetCache[es_key].getPnL(agentId)]
+                    closePrice[agentId] += [data1[-1, 4]]
+                    stdPrice[agentId] += [data1[:, 4].std()]
+                print(f"------------------ Elapsed Time [Real: {(arrow.utcnow() - real_ts).seconds:4d} s | Simulated: {(ClockController.utcnow() - sim_ts).seconds:8d} s] ------------------- ")
+
             for agentId in range(num_agents):
-                print(
-                    f"Agent: {agentId} || " +
-                    f"Open [Long: {robot_client.assetCache[es_key].openLongQty(agentId):2d} | " +
-                    f"Short: {robot_client.assetCache[es_key].openShortQty(agentId):2d}] | " +
-                    f"Position: {robot_client.assetCache[es_key].position[agentId]:=+3d} | " +
-                    f"RealizedPnL: {float(robot_client.assetCache[es_key].getPnL(agentId)):=+9.2f} | "
-                    # f"PnL: {float(robot_client.account_info['RealizedPnL']) + float(robot_client.account_info['UnrealizedPnL'])}"
-                )
-                logPnL[agentId] += [robot_client.assetCache[es_key].getPnL(agentId)]
-                closePrice[agentId] += [data1[-1, 4]]
-                stdPrice[agentId] += [data1[:, 4].std()]
-            print(f"------------------ Elapsed Time [Real: {(arrow.utcnow() - real_ts).seconds:4d} s | Simulated: {(ClockController.utcnow() - sim_ts).seconds:8d} s] ------------------- ")
+                
+                # if agentId > 0:
+                #     high_price = round(4*(data1[-5:, 2].mean() + (1 + agentId/num_agents)*data1[-5:, 2].std()))/4
+                #     low_price = round(4*(data1[-5:, 3].mean() - (1 + agentId/num_agents)*data1[-5:, 3].std()))/4
+                # else:
+                idx = round(((agentId + 1)/num_agents*0.1 + 0.5)*data1.shape[0])
+                high_price = (data1[-idx:, 2] - data1[-idx:, 7]).max()-0.25
+                low_price = (data1[-idx:, 3] - data1[-idx:, 7]).min()+0.25
+                weights = np.exp(-np.arange(idx-1)/idx/2)
+                trend = (np.diff(data1[-idx:, 7], n=1) * weights).sum() / weights.sum() + data1[-1, 7]
+                high_price = round(4*(high_price + trend))/4
+                low_price = round(4*(low_price + trend))/4
 
-        for agentId in range(num_agents):
-            
-            # if agentId > 0:
-            #     high_price = round(4*(data1[-5:, 2].mean() + (1 + agentId/num_agents)*data1[-5:, 2].std()))/4
-            #     low_price = round(4*(data1[-5:, 3].mean() - (1 + agentId/num_agents)*data1[-5:, 3].std()))/4
-            # else:
-            idx = round(((agentId + 1)/num_agents*0.1 + 0.5)*data1.shape[0])
-            high_price = (data1[-idx:, 2] - data1[-idx:, 7]).max()-0.25
-            low_price = (data1[-idx:, 3] - data1[-idx:, 7]).min()+0.25
-            weights = np.exp(-np.arange(idx-1)/idx/2)
-            trend = (np.diff(data1[-idx:, 7], n=1) * weights).sum() / weights.sum() + data1[-1, 7]
-            high_price = round(4*(high_price + trend))/4
-            low_price = round(4*(low_price + trend))/4
+                if robot_client.assetCache[es_key].openLongQty(agentId) == 0 and robot_client.assetCache[es_key].position[agentId] < 1:
+                    buyId[agentId] = robot_client.placeOrder(es_key, 'BUY', 1, low_price, agentId)
+                elif robot_client.assetCache[es_key].openLongQty(agentId) > 0 and buyId[agentId] in robot_client.assetCache[es_key].openOrders[agentId] and abs(robot_client.assetCache[es_key].openOrders[agentId][buyId[agentId]].lmtPrice - low_price) > 0.25:
+                    buyId[agentId] = robot_client.updateOrder(buyId[agentId], price=low_price)
 
-            if robot_client.assetCache[es_key].openLongQty(agentId) == 0 and robot_client.assetCache[es_key].position[agentId] < 1:
-                buyId[agentId] = robot_client.placeOrder(es_key, 'BUY', 1, low_price, agentId)
-            elif robot_client.assetCache[es_key].openLongQty(agentId) > 0 and buyId[agentId] in robot_client.assetCache[es_key].openOrders[agentId] and abs(robot_client.assetCache[es_key].openOrders[agentId][buyId[agentId]].lmtPrice - low_price) > 0.25:
-                buyId[agentId] = robot_client.updateOrder(buyId[agentId], price=low_price)
+                if robot_client.assetCache[es_key].openShortQty(agentId) == 0 and robot_client.assetCache[es_key].position[agentId] > -1:
+                    sellId[agentId] = robot_client.placeOrder(es_key, 'SELL', 1, high_price, agentId)
+                elif robot_client.assetCache[es_key].openShortQty(agentId) > 0 and sellId[agentId] in robot_client.assetCache[es_key].openOrders[agentId] and abs(robot_client.assetCache[es_key].openOrders[agentId][sellId[agentId]].lmtPrice - high_price) > 0.25:
+                    sellId[agentId] = robot_client.updateOrder(sellId[agentId], price=high_price)
 
-            if robot_client.assetCache[es_key].openShortQty(agentId) == 0 and robot_client.assetCache[es_key].position[agentId] > -1:
-                sellId[agentId] = robot_client.placeOrder(es_key, 'SELL', 1, high_price, agentId)
-            elif robot_client.assetCache[es_key].openShortQty(agentId) > 0 and sellId[agentId] in robot_client.assetCache[es_key].openOrders[agentId] and abs(robot_client.assetCache[es_key].openOrders[agentId][sellId[agentId]].lmtPrice - high_price) > 0.25:
-                sellId[agentId] = robot_client.updateOrder(sellId[agentId], price=high_price)
+            # ax1.clear()
+            # ax2.clear()
+            # ax3.clear()
+            # ax4.clear()
 
-        # ax1.clear()
-        # ax2.clear()
-        # ax3.clear()
-        # ax4.clear()
+            # ax1.plot(data1[:, 0], data1[:, 2:4])
+            # ax1.plot(data1[:, 0], data1[:, 7])
+            # ax1.plot(data1[-1, 0], data1[-1, 4], marker='o')
 
-        # ax1.plot(data1[:, 0], data1[:, 2:4])
-        # ax1.plot(data1[:, 0], data1[:, 7])
-        # ax1.plot(data1[-1, 0], data1[-1, 4], marker='o')
+            # ax2.plot(data2[:, 0], data2[:, 2:4])
+            # ax2.plot(data2[:, 0], data2[:, 7])
+            # ax2.plot(data2[-1, 0], data2[-1, 4], marker='o')
 
-        # ax2.plot(data2[:, 0], data2[:, 2:4])
-        # ax2.plot(data2[:, 0], data2[:, 7])
-        # ax2.plot(data2[-1, 0], data2[-1, 4], marker='o')
+            # ax3.plot(data3[:, 0], data3[:, 2:4])
+            # ax3.plot(data3[:, 0], data3[:, 7])
+            # ax3.plot(data3[-1, 0], data3[-1, 4], marker='o')
 
-        # ax3.plot(data3[:, 0], data3[:, 2:4])
-        # ax3.plot(data3[:, 0], data3[:, 7])
-        # ax3.plot(data3[-1, 0], data3[-1, 4], marker='o')
+            # ax4.plot(data4[:, 0], data4[:, 2:4])
+            # ax4.plot(data4[:, 0], data4[:, 7])
+            # ax4.plot(data4[-1, 0], data4[-1, 4], marker='o')
 
-        # ax4.plot(data4[:, 0], data4[:, 2:4])
-        # ax4.plot(data4[:, 0], data4[:, 7])
-        # ax4.plot(data4[-1, 0], data4[-1, 4], marker='o')
+            ClockController.increment_utcnow(1)
+            time.sleep(0.1)
+            # time.sleep(1.)
+            # plt.pause(0.05)
+        # plt.show()
 
-        ClockController.increment_utcnow(1)
-        time.sleep(0.1)
-        # time.sleep(1.)
-        # plt.pause(0.05)
-    # plt.show()
+        time.sleep(1)
+        for n in range(num_agents):
+        #     allData = np.array([logPnL[n], closePrice[n], stdPrice[n]]).T
+        #     allDataNorm = (allData - allData.mean(0))/allData.std(0)
+        #     allDataCorr = allDataNorm.T @ allDataNorm / allDataNorm.shape[0]
+        #     print(f"CorrMat for Agent {n}")
+        #     print(allDataCorr)
+            allDaysData[n][valid_day] = float(robot_client.assetCache[es_key].getPnL(agentId))
+        robot_client.unsubscribe_asset('ES', 'GLOBEX')
+
+        # plt.plot(np.stack(list(logPnL.values())).T)
+        # plt.show()
 
     robot_client.disconnect_client()
-    time.sleep(1)
-    for n in range(num_agents):
-        allData = np.array([logPnL[n], closePrice[n], stdPrice[n]]).T
-        allDataNorm = (allData - allData.mean(0))/allData.std(0)
-        allDataCorr = allDataNorm.T @ allDataNorm / allDataNorm.shape[0]
-        print(f"CorrMat for Agent {n}")
-        print(allDataCorr)
-
-    plt.plot(np.stack(list(logPnL.values())).T)
-    plt.show()
-
     print("Done")

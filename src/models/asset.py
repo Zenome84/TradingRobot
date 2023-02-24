@@ -23,6 +23,42 @@ from models.signal import Signal
 
 class Asset:
 
+    @staticmethod
+    def getValidTradingDays(symbol: str, exchange: str, client: RobotClient, from_date: arrow.Arrow, to_date: arrow.Arrow, numLookbackDays: int = None, minValidActivity: int = None):
+        with open('src/resources/queries/get_futures_trade_dates.influx', 'r') as file:
+            query = file.read()
+        query = query.replace("v.timeRangeStart", str(from_date.int_timestamp)) \
+            .replace("v.timeRangeStop", str(to_date.int_timestamp)) \
+            .replace("v.exchange", exchange) \
+            .replace("v.symbol", symbol)
+
+        if minValidActivity is None:
+            minValidActivity = 500000
+        if numLookbackDays is None:
+            numLookbackDays = 0
+
+        tables = client.client_adapter.query_api.query(query, org=client.client_adapter.org)
+        contractDict: Dict[str, Dict[arrow.Arrow, int]] = dict()
+        for table in tables:
+            for record in table.records:
+                contract = record['contract']
+                contractDict.setdefault(contract, dict())
+                dayKey = arrow.get(record['_time'], ClockController.time_zone)
+                volume = record['_value']
+                contractDict[contract][dayKey] = volume
+        
+        validDays: Set[arrow.Arrow] = set()
+        for contract, daysDict in contractDict.items():
+            days = list(daysDict.keys())
+            volumes = list(daysDict.values())
+            for n in range(len(days)):
+                if volumes[n] > minValidActivity and n >= numLookbackDays:
+                    validDays.add(days[n])
+                else:
+                    validDays.discard(days[n])
+        
+        return list(sorted(validDays))
+
     def __init__(self, symbol: str, exchange: str, secType: str, client: RobotClient, num_agents: int = 1):
         '''
         a wrapper/collection to store all Signals related to one Contract
@@ -209,3 +245,4 @@ class Asset:
         if len(self.signals) == 0:
             raise AttributeError(f"ERROR    Cannot get current price of {self.asset_key} without subscribing to at least 1 signal.")
         return self.signals[list(self.signals.keys())[0]].data[-1][4]
+

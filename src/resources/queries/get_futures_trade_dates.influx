@@ -1,0 +1,8 @@
+from(bucket: "MarketData")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r["_measurement"] == "tick")
+  |> filter(fn: (r) => r["_field"] == "size")
+  |> filter(fn: (r) => r["exchange"] == "v.exchange")
+  |> filter(fn: (r) => r["symbol"] == "v.symbol")
+  |> aggregateWindow(every: 24h, fn: sum, timeSrc: "_start", createEmpty: false)
+  |> yield(name: "sum")

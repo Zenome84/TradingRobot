@@ -22,7 +22,6 @@ class EpochWindowGenerator():
         self.label_len = label_len
         self.shift = shift
         self.total_window_size = input_len + shift
-        
 
         self.input_slice = slice(0, self.input_len)
         self.input_indices = np.arange(self.total_window_size)[self.input_slice]

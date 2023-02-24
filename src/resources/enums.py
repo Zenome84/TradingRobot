@@ -27,9 +27,15 @@ class BarSize(Enum):
     HRS_08 = "8 hours"
     DAY_01 = "1 day"
 
-
-# def BarDuration(barSize: BarSize, length: int) -> str:
-#     return ""
+class BarColumn(Enum):
+    TimeStamp = 0
+    Open = 1
+    High = 2
+    Low = 3
+    Close = 4
+    Volume = 5
+    BarCount = 6
+    VWAP = 7
 
 BarDuration = {
     "1 secs": "1800 S",  # 30 mins
@@ -53,6 +59,28 @@ BarDuration = {
     "1 day": "1 Y"
 }
 
+BarDeltaSeconds = {
+    BarSize.SEC_01.value: 1,
+    BarSize.SEC_05.value: 5,
+    BarSize.SEC_10.value: 10,
+    BarSize.SEC_15.value: 15,
+    BarSize.SEC_30.value: 30,
+    BarSize.MIN_01.value: 60,
+    BarSize.MIN_02.value: 2*60,
+    BarSize.MIN_03.value: 3*60,
+    BarSize.MIN_05.value: 5*60,
+    BarSize.MIN_10.value: 10*60,
+    BarSize.MIN_15.value: 15*60,
+    BarSize.MIN_20.value: 20*60,
+    BarSize.MIN_30.value: 30*60,
+    BarSize.HRS_01.value: 60*60,
+    BarSize.HRS_02.value: 2*60*60,
+    BarSize.HRS_03.value: 3*60*60,
+    BarSize.HRS_04.value: 4*60*60,
+    BarSize.HRS_08.value: 8*60*60,
+    BarSize.DAY_01.value: 24*60*60,
+}
+
 class OrderStatus(Enum):
     PendingSubmit = auto # indicates that you have transmitted the order, but have not  yet received confirmation that it has been accepted by the order destination. NOTE: This order status is not sent by TWS and should be explicitly set by the API developer when an order is submitted.
     PendingCancel = auto # indicates that you have sent a request to cancel the order but have not yet received cancel confirmation from the order destination. At this point, your order is not confirmed canceled. You may still receive an execution while your cancellation request is pending. NOTE: This order status is not sent by TWS and should be explicitly set by the API developer when an order is canceled.
@@ -61,4 +89,3 @@ class OrderStatus(Enum):
     Cancelled = auto # indicates that the balance of your order has been confirmed canceled by the IB system. This could occur unexpectedly when IB or the destination has rejected your order.
     Filled = auto # indicates that the order has been completely filled.
     Inactive = auto # indicates that the order has been accepted by the system (simulated orders) or an exchange (native orders) but that currently the order is inactive due to system, exchange or other issues.
-    

@@ -11,6 +11,33 @@ layerTimeDistributed = tf.keras.layers.TimeDistributed
 
 class TemporalFusionTransformer:
     def __init__(self, input_spec, target_spec, d_model, att_heads, lookback, lookforward, dropout_rate):
+        '''
+        input_spec: of the form
+            {
+                'static': {
+                    'var_name': { 'num_categories': Positive Integer or 0 for Reals },
+                    ...
+                },
+                'observed': { Same Structure },
+                'forecast': { Same Structure }
+            }
+
+        target_spec: of the form (at the moment only supports Reals)
+            {
+                'var_name': { 'quantiles': [List of quantiles] },
+                ...
+            }
+
+        d_model: Embedding feature size to use throughout the TFT model
+
+        att_heads: Number of attention heads to use
+
+        lookback: timeseries length of 'observed' values
+
+        lookforward: timeseries length of 'forecast' values
+
+        dropout_rate: dropout rate to use during training
+        '''
         input_spec = {
             'static': {
                 'day_of_week': {
@@ -87,7 +114,7 @@ class TemporalFusionTransformer:
                     embedding_size=d_model
                 ))(input_data['input_tensor'])
         
-        static_encoder_tensor, static_flags_tensor = VariableSelectionNetwork(
+        static_encoder_tensor, self.static_flags = VariableSelectionNetwork(
             num_features=len(self.input_spec['static']),
             units=self.d_model,
             dropout_rate=self.dropout_rate
@@ -113,7 +140,7 @@ class TemporalFusionTransformer:
             dropout_rate=self.dropout_rate
         )(static_encoder_tensor)
 
-        observed_features, observed_flags = layerTimeDistributed(
+        observed_features, self.observed_flags = layerTimeDistributed(
             VariableSelectionNetwork(
                 num_features=len(self.input_spec['observed']),
                 units=self.d_model,
@@ -124,7 +151,7 @@ class TemporalFusionTransformer:
             for _, input_data in self.input_spec['observed'].items()
         ] + [tf.repeat(tf.expand_dims(cvs_tensor, 1), self.lookback, 1)])
         
-        forecast_features, forecast_flags = layerTimeDistributed(
+        forecast_features, self.forecast_flags = layerTimeDistributed(
             VariableSelectionNetwork(
                 num_features=len(self.input_spec['forecast']),
                 units=self.d_model,
@@ -167,7 +194,7 @@ class TemporalFusionTransformer:
             dropout_rate=self.dropout_rate
         )([temporal_feature_layer] + [tf.repeat(tf.expand_dims(ce_tensor, 1), self.lookback + self.lookforward, 1)])
 
-        attention_layer, attention_scores = InterpretableMultiHeadSelfAttention(
+        attention_layer, self.attention_scores = InterpretableMultiHeadSelfAttention(
             self.att_heads, self.d_model, self.dropout_rate)(enriched_temporal_layer)
 
         temporal_attention = drop_gate_skip_norm(

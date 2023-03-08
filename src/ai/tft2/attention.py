@@ -2,7 +2,6 @@
 import tensorflow as tf
 
 layerDense = tf.keras.layers.Dense
-layerDropout = tf.keras.layers.Dropout
 layerReshape = tf.keras.layers.Reshape
 layerSoftmax = tf.keras.layers.Softmax
 layerAttention = tf.keras.layers.Attention

@@ -12,11 +12,13 @@ import tensorflow_transform as tft
 import keras.api._v2.keras as krs
 
 from importlib import import_module
+from ai.tft2.attention import InterpretableMultiHeadSelfAttention
+from ai.tft2.embedding import GenericEmbedding
+from ai.tft2.gating import GatedResidualNetwork, VariableSelectionNetwork, drop_gate_skip_norm
 from resources.enums import BarColumn, BarDeltaSeconds
 
 from resources.time_tools import ClockController
 
-from ai.tft.TemporalFusionTransformer import TemporalFusionTransformer
 
 class TimeseriesDatasetGenerator():
     @staticmethod
@@ -138,7 +140,6 @@ class TimeseriesDatasetGenerator():
             test_data[bar_len] = list()
 
         day_iterator = 0
-        model = TemporalFusionTransformer(None, None, 5, 2, 0)
         for valid_day, day_data in all_data.items():
             valid_day_arrow = arrow.get(int(valid_day), tzinfo=ClockController.time_zone)
             day_of_week = valid_day_arrow.weekday()
@@ -177,15 +178,19 @@ class TimeseriesDatasetGenerator():
                     sample = {
                         'inputs': {
                             'static': {
-                                'day_of_week': day_of_week
+                                'day_of_week': np.expand_dims(day_of_week, -1)
                             },
                             'observed': {
-                                'time_of_day_ts': time_of_day_ts_observed,
-                                'volume_ts': volume_ts_observed,
-                                'price_ts': price_ts_observed
+                                'time_of_day_ts': np.expand_dims(time_of_day_ts_observed, -1),
+                                'volume_ts': np.expand_dims(volume_ts_observed, -1),
+                                'open_ts': np.expand_dims(price_ts_observed[..., 0], -1),
+                                'high_ts': np.expand_dims(price_ts_observed[..., 1], -1),
+                                'low_ts': np.expand_dims(price_ts_observed[..., 2], -1),
+                                'close_ts': np.expand_dims(price_ts_observed[..., 3], -1),
+                                'vwap_ts': np.expand_dims(price_ts_observed[..., 4], -1)
                             },
                             'forecast': {
-                                'time_of_day_ts': time_of_day_ts_forecast
+                                'time_of_day_ts': np.expand_dims(time_of_day_ts_forecast, -1)
                             }
                         },
                         'targets': {
@@ -193,6 +198,136 @@ class TimeseriesDatasetGenerator():
                             'low_ts': low_ts_target
                         }
                     }
+                    #####################################################
+                    layerTimeDistributed = tf.keras.layers.TimeDistributed
+                    layerDense = tf.keras.layers.Dense
+                    layerReshape = tf.keras.layers.Reshape
+                    d_model = 10
+                    d_att = 5
+                    dout_rate = 0.9
+
+                    static_embedding = {
+                        input_name : \
+                            GenericEmbedding(
+                                num_categories=5,
+                                embedding_size=d_model
+                            )(np.expand_dims(input_data, 0))
+                        for input_name, input_data in sample['inputs']['static'].items()
+                    }
+                    observed_embedding = {
+                        input_name : \
+                            layerTimeDistributed(GenericEmbedding(
+                                num_categories=0,
+                                embedding_size=d_model
+                            ))(np.expand_dims(input_data, 0))
+                        for input_name, input_data in sample['inputs']['observed'].items()
+                    }
+                    forecast_embedding = {
+                        input_name : \
+                            layerTimeDistributed(GenericEmbedding(
+                                num_categories=0,
+                                embedding_size=d_model
+                            ))(np.expand_dims(input_data, 0))
+                        for input_name, input_data in sample['inputs']['forecast'].items()
+                    }
+                    
+                    static_encoder_tensor, static_flags_tensor = VariableSelectionNetwork(
+                        num_features=len(static_embedding),
+                        units=d_model,
+                        dropout_rate=dout_rate
+                    )([
+                        input_data
+                        for _, input_data in static_embedding.items()
+                    ])
+                    
+                    cvs_tensor = GatedResidualNetwork(
+                        units=d_model,
+                        dropout_rate=dout_rate
+                    )(static_encoder_tensor)
+                    ce_tensor = GatedResidualNetwork(
+                        units=d_model,
+                        dropout_rate=dout_rate
+                    )(static_encoder_tensor)
+                    ch_tensor = GatedResidualNetwork(
+                        units=d_model,
+                        dropout_rate=dout_rate
+                    )(static_encoder_tensor)
+                    cc_tensor = GatedResidualNetwork(
+                        units=d_model,
+                        dropout_rate=dout_rate
+                    )(static_encoder_tensor)
+                    
+                    observed_features, observed_flags = layerTimeDistributed(
+                        VariableSelectionNetwork(
+                            num_features=len(observed_embedding),
+                            units=d_model,
+                            dropout_rate=dout_rate,
+                            with_context=True
+                    ))([
+                        input_data
+                        for _, input_data in observed_embedding.items()
+                    ] + [tf.repeat(tf.expand_dims(cvs_tensor, 1), 600, 1)])
+
+                    forecast_features, forecast_flags = layerTimeDistributed(
+                        VariableSelectionNetwork(
+                            num_features=len(forecast_embedding),
+                            units=d_model,
+                            dropout_rate=dout_rate,
+                            with_context=True
+                    ))([
+                        input_data
+                        for _, input_data in forecast_embedding.items()
+                    ] + [tf.repeat(tf.expand_dims(cvs_tensor, 1), 90, 1)])
+
+                    observed_lstm, state_h, state_c = krs.layers.LSTM(
+                        d_model,
+                        return_sequences=True,
+                        return_state=True,
+                        stateful=False,
+                        activation='tanh',
+                        recurrent_activation='sigmoid',
+                        recurrent_dropout=0,
+                        unroll=False,
+                        use_bias=True
+                    )(observed_features, initial_state=[ch_tensor, cc_tensor])
+                    forecast_lstm = krs.layers.LSTM(
+                        d_model,
+                        return_sequences=True,
+                        return_state=False,
+                        stateful=False,
+                        activation='tanh',
+                        recurrent_activation='sigmoid',
+                        recurrent_dropout=0,
+                        unroll=False,
+                        use_bias=True
+                    )(forecast_features, initial_state=[state_h, state_c])
+
+                    feature_layer = krs.backend.concatenate([observed_features, forecast_features], axis=1)
+                    lstm_layer = krs.backend.concatenate([observed_lstm, forecast_lstm], axis=1)
+
+                    temporal_feature_layer = drop_gate_skip_norm(lstm_layer, feature_layer, dout_rate)
+                    enriched_temporal_layer = GatedResidualNetwork(
+                        units=d_model,
+                        dropout_rate=dout_rate
+                    )([temporal_feature_layer] + [tf.repeat(tf.expand_dims(ce_tensor, 1), 690, 1)])
+
+                    attention_layer, attention_scores = InterpretableMultiHeadSelfAttention(
+                        d_att, d_model, dout_rate)(enriched_temporal_layer)
+
+                    temporal_attention = drop_gate_skip_norm(attention_layer[..., -90:, :], enriched_temporal_layer[..., -90:, :], dout_rate)
+
+                    temporal_decoder = GatedResidualNetwork(
+                        units=d_model,
+                        dropout_rate=dout_rate
+                    )(temporal_attention)
+
+                    final_layer = drop_gate_skip_norm(temporal_decoder, temporal_feature_layer[..., -90:, :], dout_rate)
+                    target_quantiles = layerTimeDistributed(layerReshape([2, 3]))(layerDense(2*3)(final_layer))
+
+                    print('here')
+
+
+                    #####################################################
                     
                     static_inputs = np.reshape(day_of_week, (1, 1))
                     observed_inputs = np.concatenate([
@@ -201,8 +336,6 @@ class TimeseriesDatasetGenerator():
                         np.reshape(price_ts_observed, (1, -1, 5))
                     ], axis=-1)
                     forecast_inputs = np.reshape(time_of_day_ts_forecast, (1, -1, 1))
-
-                    pred =  model.predict((static_inputs, observed_inputs, forecast_inputs))
 
                     if day_iterator < train_days_end:
                         train_data[bar_len].append(sample)

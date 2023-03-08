@@ -1,15 +1,22 @@
-import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers
 
-class GenericEmbedding(layers.Layer):
-    def __init__(self, input_size, embedding_size):
+import tensorflow as tf
+
+layerDense = tf.keras.layers.Dense
+layerEmbedding = tf.keras.layers.Embedding
+layerReshape = tf.keras.layers.Reshape
+
+
+class GenericEmbedding(tf.keras.layers.Layer):
+    def __init__(self, num_categories, embedding_size):
         super().__init__()
 
-        if input_size == 0:
-            self._dense = layers.Dense(embedding_size)
+        if num_categories == 0:
+            self._embedding = layerDense(embedding_size)
         else:
-            self._dense = layers.Embedding(input_size, embedding_size)
+            self._embedding = layerEmbedding(num_categories, embedding_size)
+        self._reshape = layerReshape([embedding_size])
 
     def call(self, inputs):
-        return self._dense(inputs)
+        x = self._embedding(inputs)
+        x = self._reshape(x)
+        return x

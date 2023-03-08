@@ -20,7 +20,7 @@ def get_weekday(timeseries):
 
 if __name__ == "__main__":
     
-    with open('Py/allData.json', 'r') as fread:
+    with open('data/allData.json', 'r') as fread:
         allData = json.load(fread)
     
     window_sizes = {

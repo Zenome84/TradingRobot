@@ -23,6 +23,12 @@ if __name__ == "__main__":
     with open('data/allData.json', 'r') as fread:
         allData = json.load(fread)
     
+    for ts, ts_data in allData.items():
+        for bar_len, bar_data in ts_data.items():
+            day_path = f"data/{bar_len.replace(' ', '_')}/{ts}.json"
+            with open(day_path, 'w') as fwrite:
+                json.dump(bar_data, fwrite)
+
     window_sizes = {
         BarSize.SEC_01.value: 600,
         BarSize.MIN_01.value: 100,

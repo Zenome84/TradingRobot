@@ -228,3 +228,22 @@ class TemporalFusionTransformer:
                 for _, target_data in self.target_spec.items()
             ]
         )
+
+    @tf.function
+    def quantile_loss(self, targets, predictions):
+        cumulative_loss = tf.constant(0.)
+        for target_idx, target_data in enumerate(self.target_spec.values()):
+            prediction_errors = targets[target_idx] - predictions[target_idx]
+            quantiles = tf.expand_dims(tf.constant(target_data['quantiles']), -1)
+            cumulative_loss += tf. reduce_mean(tf.matmul(tf.nn.relu(prediction_errors), quantiles) \
+                + tf.matmul(tf.nn.relu(-prediction_errors), (1 - quantiles)))
+        return cumulative_loss
+    
+    def fit(self, inputs, outputs):
+        ...
+
+        # self.model.fit([
+        #     np.expand_dims(input_data, 0)
+        #     for _, input_type in inputs.items()
+        #     for _, input_data in input_type.items()
+        # ], lo)

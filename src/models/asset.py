@@ -13,6 +13,8 @@ import arrow
 from ibapi.contract import Contract, ContractDetails
 from ibapi.order import Order
 
+from resources.sim_adapter import INFLUX
+
 if TYPE_CHECKING:
     from core.robot_client import RobotClient
 
@@ -24,7 +26,7 @@ from models.signal import Signal
 class Asset:
 
     @staticmethod
-    def getValidTradingDays(symbol: str, exchange: str, client: RobotClient, from_date: arrow.Arrow, to_date: arrow.Arrow, numLookbackDays: int = None, minValidActivity: int = None):
+    def getValidTradingDays(symbol: str, exchange: str, client_adapter: INFLUX, from_date: arrow.Arrow, to_date: arrow.Arrow, numLookbackDays: int = 0, minValidActivity: int = 500000):
         with open('src/resources/queries/get_futures_trade_dates.influx', 'r') as file:
             query = file.read()
         query = query.replace("v.timeRangeStart", str(from_date.int_timestamp)) \
@@ -32,12 +34,7 @@ class Asset:
             .replace("v.exchange", exchange) \
             .replace("v.symbol", symbol)
 
-        if minValidActivity is None:
-            minValidActivity = 500000
-        if numLookbackDays is None:
-            numLookbackDays = 0
-
-        tables = client.client_adapter.query_api.query(query, org=client.client_adapter.org)
+        tables = client_adapter.query_api.query(query, org=client_adapter.org)
         contractDict: Dict[str, Dict[arrow.Arrow, int]] = dict()
         for table in tables:
             for record in table.records:
@@ -69,7 +66,7 @@ class Asset:
                 f"secType must be 'FUT' or 'STK', but received: {secType}")
 
         self.client = client
-        self.signals: Dict[str, Signal] = dict()
+        self.signals: Dict[int, Signal] = dict()
         self.order_mutex = Lock()
 
         self.contract = Contract()
@@ -78,9 +75,9 @@ class Asset:
         self.contract.currency = 'USD'
         self.contract.secType = secType
 
-        self.initMargin = 0
-        self.maintMargin = 0
-        self.commission = 0
+        self.initMargin = 0.
+        self.maintMargin = 0.
+        self.commission = 0.
 
         self.num_agents = num_agents
         self.order_agent_map: Dict[int, int] = dict()
@@ -140,6 +137,7 @@ class Asset:
             self.client.order_asset_map.pop(orderId)
 
     def update_order_rules(self):
+        orderId = -1
         if self.order_mutex.acquire():
             orderId = self.client.get_new_orderId()
             #####

@@ -14,7 +14,8 @@ from resources.time_tools import ClockController, wait_until
 if __name__ == "__main__":
     robot_client = RobotClient(cliendId=0, simulator="influx")
     
-    valid_days = Asset.getValidTradingDays('ES', 'GLOBEX', robot_client,
+    valid_days = Asset.getValidTradingDays(
+        'ES', 'GLOBEX', robot_client.client_adapter,
         arrow.get(datetime.datetime(2018, 2, 1, 0, 0, 0), ClockController.time_zone),
         arrow.get(datetime.datetime(2022, 2, 1, 0, 0, 0), ClockController.time_zone),
         minValidActivity=500000, numLookbackDays=2

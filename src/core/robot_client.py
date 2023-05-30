@@ -84,7 +84,7 @@ class RobotClient:
         self.client_adapter.cancelPositions()
         self.client_adapter.reqAccountUpdates(False, '')
         self.client_adapter.disconnect()
-        self.client_adapter = None
+        # self.client_adapter = None
 
     def get_new_orderId(self):
         self.orderIdObtained = False
@@ -97,6 +97,7 @@ class RobotClient:
         return self.nextValidOrderId
 
     def get_new_reqIds(self, n=1):
+        new_reqIds = []
         if self.reqIds_mutex.acquire():
             next_reqId = max(self.reqIds) + 1
             new_reqIds = list(range(next_reqId, next_reqId + n))
@@ -142,6 +143,7 @@ class RobotClient:
                         ].unsubscribe_bar_signal(reqId)
 
     def placeOrder(self, asset_key, action, quantity, price, agentId = 0):
+        orderId = -1
         if self.assetCache[asset_key].order_mutex.acquire():
             orderId = self.get_new_orderId()
             #####
@@ -282,7 +284,7 @@ if __name__ == "__main__":
     robot_client = RobotClient(cliendId=0, simulator="influx")
     
     
-    valid_days = Asset.getValidTradingDays('ES', 'GLOBEX', robot_client,
+    valid_days = Asset.getValidTradingDays('ES', 'GLOBEX', robot_client.client_adapter,
         arrow.get(datetime.datetime(2018, 2, 1, 0, 0, 0), ClockController.time_zone),
         arrow.get(datetime.datetime(2022, 2, 1, 0, 0, 0), ClockController.time_zone),
         minValidActivity=500000, numLookbackDays=2
@@ -422,13 +424,13 @@ if __name__ == "__main__":
         # plt.show()
 
         time.sleep(1)
-        for n in range(num_agents):
-        #     allData = np.array([logPnL[n], closePrice[n], stdPrice[n]]).T
+        for agentId in range(num_agents):
+        #     allData = np.array([logPnL[agentId], closePrice[agentId], stdPrice[agentId]]).T
         #     allDataNorm = (allData - allData.mean(0))/allData.std(0)
         #     allDataCorr = allDataNorm.T @ allDataNorm / allDataNorm.shape[0]
-        #     print(f"CorrMat for Agent {n}")
+        #     print(f"CorrMat for Agent {agentId}")
         #     print(allDataCorr)
-            allDaysData[n][valid_day] = float(robot_client.assetCache[es_key].getPnL(agentId))
+            allDaysData[agentId][valid_day] = float(robot_client.assetCache[es_key].getPnL(agentId))
         robot_client.unsubscribe_asset('ES', 'GLOBEX')
 
         # plt.plot(np.stack(list(logPnL.values())).T)

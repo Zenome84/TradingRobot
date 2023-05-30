@@ -1,8 +1,13 @@
 
+import os
+import arrow
 import tensorflow as tf
+import tensorflow_io as tfio
 from ai.tft2.attention import InterpretableMultiHeadSelfAttention
 from ai.tft2.embedding import GenericEmbedding
 from ai.tft2.gating import GatedResidualNetwork, VariableSelectionNetwork, drop_gate_skip_norm
+from resources.enums import BarColumn
+from resources.time_tools import ClockController
 
 layerLSTM = tf.keras.layers.LSTM
 layerInput = tf.keras.layers.Input
@@ -38,49 +43,64 @@ class TemporalFusionTransformer:
 
         dropout_rate: dropout rate to use during training
         '''
+        @tf.function
+        def get_weekday(ts):
+            return arrow.get(ts, tzinfo=ClockController.time_zone).weekday()
+
         input_spec = {
             'static': {
                 'day_of_week': {
-                    'num_categories': 5
+                    'num_categories': 5,
+                    'input_transform': lambda fname, data: get_weekday(fname)
                 }
             },
             'observed': {
                 'time_of_day_ts': {
-                    'num_categories': 0
+                    'num_categories': 0,
+                    'input_transform': lambda fname, data: data[BarColumn.TimeStamp.value]
                 },
                 'volume_ts': {
-                    'num_categories': 0
+                    'num_categories': 0,
+                    'input_transform': lambda fname, data: data[BarColumn.Volume.value]
                 },
                 'open_ts': {
-                    'num_categories': 0
+                    'num_categories': 0,
+                    'input_transform': lambda fname, data: data[BarColumn.Open.value]
                 },
                 'high_ts': {
-                    'num_categories': 0
+                    'num_categories': 0,
+                    'input_transform': lambda fname, data: data[BarColumn.High.value]
                 },
                 'low_ts': {
-                    'num_categories': 0
+                    'num_categories': 0,
+                    'input_transform': lambda fname, data: data[BarColumn.Low.value]
                 },
                 'close_ts': {
-                    'num_categories': 0
+                    'num_categories': 0,
+                    'input_transform': lambda fname, data: data[BarColumn.Close.value]
                 },
                 'vwap_ts': {
-                    'num_categories': 0
+                    'num_categories': 0,
+                    'input_transform': lambda fname, data: data[BarColumn.VWAP.value]
                 }
             },
             'forecast': {
                 'time_of_day_ts': {
-                    'num_categories': 0
+                    'num_categories': 0,
+                    'input_transform': lambda fname, data: data[BarColumn.TimeStamp.value]
                 }
             }
         }
         target_spec = {
             'high_ts': {
                 'num_categories': 0,
-                'quantiles': [0.1, 0.5, 0.9]
+                'quantiles': [0.1, 0.25, 0.5],
+                'input_transform': lambda fname, data: data[BarColumn.High.value]
             },
             'low_ts': {
                 'num_categories': 0,
-                'quantiles': [0.1, 0.5, 0.9]
+                'quantiles': [0.5, 0.75, 0.9],
+                'input_transform': lambda fname, data: data[BarColumn.Low.value]
             }
         }
 
@@ -239,11 +259,162 @@ class TemporalFusionTransformer:
                 + tf.matmul(tf.nn.relu(-prediction_errors), (1 - quantiles)))
         return cumulative_loss
     
-    def fit(self, inputs, outputs):
-        ...
+    def dataset_generator(self, data_path, batch_size, pct_tvt):
+        num_days = len(os.listdir(f"{data_path}/../metadata"))
+        
+        full_dataset = tf.data.Dataset.list_files(f"{data_path}/*.csv", shuffle=True)
 
-        # self.model.fit([
-        #     np.expand_dims(input_data, 0)
-        #     for _, input_type in inputs.items()
-        #     for _, input_data in input_type.items()
-        # ], lo)
+        def make_dataset(dataset: tf.data.Dataset, model_name: str):
+            WINDOW_LEN = self.lookback + self.lookforward
+
+            def csv_to_dataset(fname):
+                NUMERIC_TYPE = tf.float64
+                REPEAT = self.lookforward - 1
+
+                day_ts = tf.strings.to_number(
+                    tf.strings.split(
+                        tf.strings.split(
+                            fname,
+                            os.path.sep
+                        )[-1],
+                        '.'
+                    )[0],
+                    out_type=NUMERIC_TYPE
+                )
+                
+                meta = tfio.experimental.serialization.decode_json(
+                    tf.io.read_file(tf.strings.format('data/metadata/{}.json', day_ts)), 
+                    specs={
+                        "day_of_week": tf.TensorSpec(tf.TensorShape([]), NUMERIC_TYPE),
+                        "bod_ts": tf.TensorSpec(tf.TensorShape([]), NUMERIC_TYPE),
+                        "eod_ts": tf.TensorSpec(tf.TensorShape([]), NUMERIC_TYPE)
+                    }
+                )
+
+                fcsv = tf.io.read_file(fname)
+                to_lines = tf.strings.split(fcsv, '\r\n')[:-1]
+                to_array = tf.strings.split(to_lines, ',')
+                to_tensor_series = tf.strings.to_number(to_array, out_type=NUMERIC_TYPE).to_tensor()
+
+                time_delta = to_tensor_series[-1, 0] - to_tensor_series[-2, 0]
+                ts = to_tensor_series[-1, 0] + tf.range(time_delta, time_delta*(REPEAT+1), time_delta)
+                price = to_tensor_series[-1, 4] * tf.ones([REPEAT, 2], dtype=NUMERIC_TYPE)
+                
+                repeated_tensor = tf.concat([
+                    tf.expand_dims(ts, -1),
+                    tf.zeros([REPEAT, 1], dtype=NUMERIC_TYPE),
+                    price,
+                    tf.zeros([REPEAT, 4], dtype=NUMERIC_TYPE)
+                ], -1)
+
+                return meta, tf.concat([to_tensor_series, repeated_tensor], 0)
+
+            def batch_window_len(data: tf.data.Dataset):
+                return data.batch(WINDOW_LEN, drop_remainder=True)
+            
+            dataset = dataset.map(csv_to_dataset)
+            dataset = dataset.map(
+                lambda m, t: 
+                (m, tf.data.Dataset.from_tensor_slices(t).window(WINDOW_LEN, 1).flat_map(batch_window_len))
+            )
+
+            def ds_to_spec(dataset):
+                for meta, window_data in dataset:
+                    for data in window_data:
+                        inputs=(
+                            tf.expand_dims(meta["day_of_week"], -1),
+                            tf.expand_dims(data[:self.lookback, 0]-meta["bod_ts"], -1),
+                            tf.expand_dims(data[:self.lookback, 5], -1),
+                            tf.expand_dims(data[:self.lookback, 1], -1),
+                            tf.expand_dims(data[:self.lookback, 2], -1),
+                            tf.expand_dims(data[:self.lookback, 3], -1),
+                            tf.expand_dims(data[:self.lookback, 4], -1),
+                            tf.expand_dims(data[:self.lookback, 7], -1),
+                            tf.expand_dims(data[self.lookback:, 0]-meta["bod_ts"], -1)
+                        )
+                        outputs=(
+                            tf.expand_dims(data[self.lookback:, 2], -1),
+                            tf.expand_dims(data[self.lookback:, 3], -1)
+                        )
+                        yield inputs, outputs
+            
+            return tf.data.Dataset.from_generator(
+                lambda: ds_to_spec(dataset),
+                output_signature=(
+                    (
+                        tf.TensorSpec(shape=[1], dtype=tf.int32),
+                        tf.TensorSpec(shape=[self.lookback, 1], dtype=tf.float64),
+                        tf.TensorSpec(shape=[self.lookback, 1], dtype=tf.float64),
+                        tf.TensorSpec(shape=[self.lookback, 1], dtype=tf.float64),
+                        tf.TensorSpec(shape=[self.lookback, 1], dtype=tf.float64),
+                        tf.TensorSpec(shape=[self.lookback, 1], dtype=tf.float64),
+                        tf.TensorSpec(shape=[self.lookback, 1], dtype=tf.float64),
+                        tf.TensorSpec(shape=[self.lookback, 1], dtype=tf.float64),
+                        tf.TensorSpec(shape=[self.lookforward, 1], dtype=tf.float64)
+                    ),
+                    (
+                        tf.TensorSpec(shape=[self.lookforward, 1], dtype=tf.float64),
+                        tf.TensorSpec(shape=[self.lookforward, 1], dtype=tf.float64)
+                    )
+                )
+            ).cache(f"{data_path}/{model_name}").shuffle(10*batch_size).batch(batch_size, num_parallel_calls=tf.data.AUTOTUNE).prefetch(buffer_size=tf.data.AUTOTUNE)
+
+        train_dataset = full_dataset.take(round(num_days*pct_tvt[0]))
+        self.train_dataset = make_dataset(train_dataset, 'train')
+        if pct_tvt[1] > 0:
+            validation_dataset = full_dataset.skip(round(num_days*pct_tvt[0])).take(round(num_days*(pct_tvt[1]-pct_tvt[0])))
+            self.validation_dataset = make_dataset(validation_dataset, 'validate')
+        if pct_tvt[1] < 1:
+            test_dataset = full_dataset.skip(round(num_days*pct_tvt[1]))
+            self.test_dataset = make_dataset(test_dataset, 'test')
+
+    # @tf.function
+    # def fit(self, dataset):
+    #     def ds_to_spec(fname, data):
+    #         inputs=[
+    #             input_data['input_transform'](fname, data)
+    #             for _, input_type in self.input_spec.items()
+    #             for _, input_data in input_type.items()
+    #         ]
+    #         outputs=[
+    #             target_data['input_transform'](fname, data)
+    #             for _, target_data in self.target_spec.items()
+    #         ]
+    #         return inputs, outputs
+        
+    #     for day_ts, day_dataset in dataset:
+    #         for window_data in day_dataset:
+    #             inputs, outputs = ds_to_spec(day_ts, window_data)
+    #             predictions = self.model.predict(inputs)
+
+
+if __name__ == "__main__":
+
+    d_model = 64
+    d_att = 5
+    lb = 100
+    lf = 10
+
+    chkpnt_path = f"data/1_min/model-{d_model}-{d_att}-{lb}-{lf}-" + "{epoch:04d}.ckpt"
+    chkpnt_dir = os.path.dirname(chkpnt_path)
+
+    latest_chkpnt = tf.train.latest_checkpoint(chkpnt_dir)
+
+    tft = TemporalFusionTransformer(None, None, d_model, d_att, lb, lf, 0.2)
+    tft.dataset_generator('data/1_min', 64, [0.8, 1.0])
+    tft.model.compile(optimizer=tf.optimizers.Adam(), loss=tft.quantile_loss)
+    tft.model.summary()
+    cp_callback = tf.keras.callbacks.ModelCheckpoint(
+        filepath=chkpnt_path,
+        save_weights_only=True,
+        verbose=1
+    )
+
+    tft.model.fit(
+        tft.train_dataset,
+        validation_data=tft.validation_dataset,
+        epochs=25,
+        callbacks=[cp_callback]
+    )
+
+    exit()
